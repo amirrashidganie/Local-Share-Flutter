@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:localshare/utils/file_utils.dart';
 import 'package:localshare/utils/transfer_manager.dart';
+import 'package:localshare/utils/auto_scan_manager.dart';
 import 'package:installed_apps/app_info.dart';
 import 'package:localshare/pages/device_apps_screen.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:ui';
+import 'package:localshare/utils/settings_manager.dart';
 
 class SendTab extends StatefulWidget {
   const SendTab({super.key, this.onQrScannerVisibilityChanged});
@@ -26,6 +29,7 @@ class SendTab extends StatefulWidget {
 class _SendTabState extends State<SendTab> {
   final List<dynamic> _selectedFiles = [];
   final TransferManager _transferManager = TransferManager();
+  final AutoScanManager _autoScanManager = AutoScanManager();
   final ScrollController _selectedFilesScrollController = ScrollController();
   int _selectedFilesDisplayCount = 20;
   bool _isLoadingMoreSelectedFiles = false;
@@ -36,6 +40,8 @@ class _SendTabState extends State<SendTab> {
   String _currentIP = "";
   List<String> _availableDevices = [];
   bool _isScanning = false;
+  bool _disposed = false;
+  Timer? _autoScanTimer;
 
   Future<void> _pickFiles() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -63,9 +69,14 @@ class _SendTabState extends State<SendTab> {
       ],
     );
     if (result != null) {
+      if (_disposed || !mounted) return;
       setState(() {
         _selectedFiles.addAll(result.paths.map((path) => File(path!)));
       });
+      // Ensure auto-scan is running when files are added
+      if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
+        _startAutoScan();
+      }
     }
   }
 
@@ -73,9 +84,14 @@ class _SendTabState extends State<SendTab> {
     final ImagePicker picker = ImagePicker();
     final List<XFile> images = await picker.pickMultipleMedia();
     if (images.isNotEmpty) {
+      if (_disposed || !mounted) return;
       setState(() {
         _selectedFiles.addAll(images.map((image) => File(image.path)));
       });
+      // Ensure auto-scan is running when files are added
+      if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
+        _startAutoScan();
+      }
     }
   }
 
@@ -85,9 +101,14 @@ class _SendTabState extends State<SendTab> {
       allowMultiple: true,
     );
     if (result != null) {
+      if (_disposed || !mounted) return;
       setState(() {
         _selectedFiles.addAll(result.paths.map((path) => File(path!)));
       });
+      // Ensure auto-scan is running when files are added
+      if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
+        _startAutoScan();
+      }
     }
   }
 
@@ -97,15 +118,26 @@ class _SendTabState extends State<SendTab> {
       allowMultiple: true,
     );
     if (result != null) {
+      if (_disposed || !mounted) return;
       setState(() {
         _selectedFiles.addAll(result.paths.map((path) => File(path!)));
       });
+      // Ensure auto-scan is running when files are added
+      if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
+        _startAutoScan();
+      }
     }
   }
 
   void _removeFile(int index) {
     if (index >= 0 && index < _selectedFiles.length) {
-      _transferManager.stopSending();
+      // Use addPostFrameCallback to avoid calling notifyListeners during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _transferManager.stopSending();
+        }
+      });
+      if (_disposed || !mounted) return;
       setState(() => _selectedFiles.removeAt(index));
     }
   }
@@ -119,7 +151,16 @@ class _SendTabState extends State<SendTab> {
 
   @override
   void dispose() {
+    _disposed = true;
     _selectedFilesScrollController.dispose();
+    // Stop auto-scan immediately
+    _stopAutoScan();
+    _autoScanTimer?.cancel();
+    // Use addPostFrameCallback to avoid calling notifyListeners during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _transferManager.stopSending();
+    });
+    _selectedFiles.clear();
     super.dispose();
   }
 
@@ -133,51 +174,111 @@ class _SendTabState extends State<SendTab> {
   void _loadMoreSelectedFiles() {
     if (_isLoadingMoreSelectedFiles) return;
     if (_selectedFilesDisplayCount >= _selectedFiles.length) return;
+    if (_disposed || !mounted) return;
     setState(() {
       _isLoadingMoreSelectedFiles = true;
     });
     Future.delayed(const Duration(milliseconds: 300), () {
-      setState(() {
-        _selectedFilesDisplayCount = (_selectedFilesDisplayCount + 20).clamp(
-          0,
-          _selectedFiles.length,
-        );
-        _isLoadingMoreSelectedFiles = false;
-      });
+      if (!_disposed && mounted) {
+        setState(() {
+          _selectedFilesDisplayCount = (_selectedFilesDisplayCount + 20).clamp(
+            0,
+            _selectedFiles.length,
+          );
+          _isLoadingMoreSelectedFiles = false;
+        });
+      }
     });
   }
 
   Future<void> _initializeConnection() async {
+    if (_disposed || !mounted) return;
     await _getNetworkInfo();
-    _startAutoScan();
+    // Start auto-scan immediately when tab is loaded
+    if (_currentIP.isNotEmpty && !_disposed && mounted) {
+      _startAutoScan();
+    } else if (!_disposed && mounted) {
+      // If IP is not available yet, try again after a short delay
+      Timer(const Duration(seconds: 1), () {
+        if (!_disposed && mounted) {
+          _getNetworkInfo().then((_) {
+            if (_currentIP.isNotEmpty && !_disposed && mounted) {
+              _startAutoScan();
+            }
+          });
+        }
+      });
+    }
   }
 
   Future<void> _getNetworkInfo() async {
+    if (_disposed || !mounted) return;
     try {
       final info = NetworkInfo();
       _currentSSID = await info.getWifiName() ?? "Unknown";
       _currentIP = await info.getWifiIP() ?? "";
+
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
       // Handle silently
     }
   }
 
   void _startAutoScan() {
-    if (_currentIP.isNotEmpty && _selectedFiles.isNotEmpty) {
+    if (_disposed || !mounted || !_autoScanManager.isEnabled) return;
+    if (_currentIP.isNotEmpty) {
       _scanNetworkForReceivers();
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted && !_transferManager.isSending) {
+      _autoScanTimer?.cancel();
+      _autoScanTimer = Timer(const Duration(seconds: 2), () {
+        if (!_disposed &&
+            mounted &&
+            !_transferManager.isSending &&
+            _autoScanManager.isEnabled) {
           _startAutoScan();
         }
       });
     }
   }
 
-  Future<void> _scanNetworkForReceivers() async {
-    setState(() {
-      _availableDevices.clear();
-      _isScanning = true;
+  void _stopAutoScan() {
+    _disposed = true;
+    _autoScanTimer?.cancel();
+    _autoScanTimer = null;
+    // Clear any pending auto-scan operations
+  }
+
+  void _restartDeviceScanning() {
+    if (_disposed || !mounted) return;
+
+    // Clear previous scan results
+    if (mounted) {
+      setState(() {
+        _availableDevices.clear();
+        _isScanning = false;
+      });
+    }
+
+    // Wait a moment then start fresh scanning
+    Timer(const Duration(milliseconds: 500), () {
+      if (!_disposed && mounted && _autoScanManager.isEnabled) {
+        _scanNetworkForReceivers();
+        // Restart auto-scan after manual scan
+        _startAutoScan();
+      }
     });
+  }
+
+  Future<void> _scanNetworkForReceivers() async {
+    if (_disposed || !mounted) return;
+
+    if (mounted) {
+      setState(() {
+        _availableDevices.clear();
+        _isScanning = true;
+      });
+    }
 
     String subnet = _currentIP.substring(0, _currentIP.lastIndexOf('.'));
     List<Future> scanTasks = [];
@@ -189,19 +290,24 @@ class _SendTabState extends State<SendTab> {
     }
 
     await Future.wait(scanTasks);
-    setState(() => _isScanning = false);
+
+    if (mounted) {
+      setState(() => _isScanning = false);
+    }
   }
 
   Future<void> _checkForReceiver(String ip) async {
+    if (_disposed || !mounted) return;
     try {
+      final settingsManager = SettingsManager();
       Socket socket = await Socket.connect(
         ip,
-        5000,
-        timeout: const Duration(milliseconds: 500),
+        settingsManager.transferPort,
+        timeout: Duration(milliseconds: settingsManager.networkTimeout * 1000),
       );
       await socket.close();
 
-      if (mounted) {
+      if (!_disposed && mounted) {
         setState(() {
           _availableDevices.add(ip);
         });
@@ -212,41 +318,65 @@ class _SendTabState extends State<SendTab> {
   }
 
   Future<void> _sendToDevice(String receiverIP) async {
+    if (_disposed || !mounted) return;
     final filesToSend = _selectedFiles.whereType<File>().toList();
-    _transferManager.startSending(filesToSend);
+
+    // Use addPostFrameCallback to avoid calling notifyListeners during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _transferManager.startSending(filesToSend);
+      }
+    });
 
     try {
       for (int i = 0; i < filesToSend.length; i++) {
         dynamic file = filesToSend[i];
         await _sendSingleFile(file, receiverIP);
         if (i < filesToSend.length - 1) {
-          _transferManager.nextSendingFile();
+          // Use addPostFrameCallback to avoid calling notifyListeners during build
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _transferManager.nextSendingFile();
+            }
+          });
         }
       }
 
-      _transferManager.stopSending();
-      setState(() => _selectedFiles.clear());
+      // Use addPostFrameCallback to avoid calling notifyListeners during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _transferManager.stopSending();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("All files sent successfully!")),
-        );
-      }
+          // Clear selected files and show success message
+          setState(() => _selectedFiles.clear());
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("All files sent successfully!")),
+          );
+
+          // Restart device scanning after successful transfer
+          _restartDeviceScanning();
+        }
+      });
     } catch (e) {
-      _transferManager.stopSending();
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Failed to send files: $e")));
-      }
+      // Use addPostFrameCallback to avoid calling notifyListeners during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _transferManager.stopSending();
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Failed to send files: $e")));
+        }
+      });
     }
   }
 
   Future<void> _sendSingleFile(dynamic file, String receiverIP) async {
+    if (_disposed || !mounted) return;
+    final settingsManager = SettingsManager();
     Socket socket = await Socket.connect(
       receiverIP,
-      5000,
-      timeout: const Duration(seconds: 10),
+      settingsManager.transferPort,
+      timeout: Duration(seconds: settingsManager.networkTimeout),
     );
     socket.setOption(SocketOption.tcpNoDelay, true);
 
@@ -278,7 +408,12 @@ class _SendTabState extends State<SendTab> {
       double speed =
           elapsedSeconds > 0 ? (sentBytes / (1024 * 1024)) / elapsedSeconds : 0;
 
-      _transferManager.updateSendProgress(progress, fileName, speed);
+      // Use addPostFrameCallback to avoid calling notifyListeners during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _transferManager.updateSendProgress(progress, fileName, speed);
+        }
+      });
     }
 
     await socket.flush();
@@ -342,6 +477,7 @@ class _SendTabState extends State<SendTab> {
                   if (result != null) {
                     if (result is List) {
                       // Multiple apps selected
+                      if (_disposed || !mounted) return;
                       setState(() {
                         for (var app in result) {
                           if (app is AppInfo && !_selectedFiles.contains(app)) {
@@ -349,7 +485,13 @@ class _SendTabState extends State<SendTab> {
                           }
                         }
                       });
-                      _startAutoScan();
+                      // Ensure auto-scan is running when files are added
+                      if (_currentIP.isNotEmpty &&
+                          !_isScanning &&
+                          !_disposed &&
+                          mounted) {
+                        _startAutoScan();
+                      }
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -361,10 +503,17 @@ class _SendTabState extends State<SendTab> {
                       }
                     } else if (result is AppInfo) {
                       // Single app selected (fallback)
+                      if (_disposed || !mounted) return;
                       setState(() {
                         _selectedFiles.add(result);
                       });
-                      _startAutoScan();
+                      // Ensure auto-scan is running when files are added
+                      if (_currentIP.isNotEmpty &&
+                          !_isScanning &&
+                          !_disposed &&
+                          mounted) {
+                        _startAutoScan();
+                      }
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -431,7 +580,7 @@ class _SendTabState extends State<SendTab> {
                     ),
                     _buildConnectionButton(
                       _isScanning ? Icons.wifi_find : Icons.refresh,
-                      "Scan",
+                      _isScanning ? "Scanning..." : "Scan",
                       Colors.green,
                       _scanNetworkForReceivers,
                     ),
@@ -482,16 +631,31 @@ class _SendTabState extends State<SendTab> {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            _isScanning
-                                ? "Scanning for devices..."
-                                : "No devices found on $_currentSSID",
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withOpacity(0.6),
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _isScanning
+                                    ? "Auto-scanning for devices..."
+                                    : "No devices found on $_currentSSID",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface.withOpacity(0.6),
+                                ),
+                              ),
+                              if (!_isScanning && _currentIP.isNotEmpty)
+                                Text(
+                                  "Auto-scan is active - devices will appear automatically",
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface.withOpacity(0.4),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -793,7 +957,10 @@ class _SendTabState extends State<SendTab> {
       List<String> data = barcode.rawValue!.split("|");
       if (data.length == 2) {
         _sendToDevice(data[1]);
-        setState(() => _showQrScanner = false);
+        if (mounted) {
+          setState(() => _showQrScanner = false);
+          widget.onQrScannerVisibilityChanged?.call(false);
+        }
       }
     }
   }
@@ -810,8 +977,10 @@ class _SendTabState extends State<SendTab> {
         ),
         leading: IconButton(
           onPressed: () {
-            setState(() => _showQrScanner = false);
-            widget.onQrScannerVisibilityChanged?.call(false);
+            if (mounted) {
+              setState(() => _showQrScanner = false);
+              widget.onQrScannerVisibilityChanged?.call(false);
+            }
           },
           icon: const Icon(Icons.close, color: Colors.white),
         ),
@@ -950,6 +1119,27 @@ class _SendTabState extends State<SendTab> {
   }
 
   void _showManualIPDialog() {
+    // Check if files are selected first
+    if (_selectedFiles.isEmpty) {
+      showDialog(
+        context: context,
+        builder:
+            (context) => AlertDialog(
+              title: const Text("No Files Selected"),
+              content: const Text(
+                "Please select files to send before entering IP address.",
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+      );
+      return;
+    }
+
     TextEditingController ipController = TextEditingController();
     showDialog(
       context: context,
@@ -1038,9 +1228,15 @@ class _SendTabState extends State<SendTab> {
         final file = File('${tempDir.path}/clipboard_$timestamp.txt');
         await file.writeAsString(data.text!);
 
+        if (_disposed || !mounted) return;
         setState(() {
           _selectedFiles.add(file);
         });
+
+        // Ensure auto-scan is running when files are added
+        if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
+          _startAutoScan();
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1119,9 +1315,18 @@ class _SendTabState extends State<SendTab> {
                       final file = File('${tempDir.path}/$fileName');
                       await file.writeAsString(textController.text);
 
+                      if (_disposed || !mounted) return;
                       setState(() {
                         _selectedFiles.add(file);
                       });
+
+                      // Ensure auto-scan is running when files are added
+                      if (_currentIP.isNotEmpty &&
+                          !_isScanning &&
+                          !_disposed &&
+                          mounted) {
+                        _startAutoScan();
+                      }
 
                       Navigator.pop(context);
 
@@ -1157,14 +1362,39 @@ class _SendTabState extends State<SendTab> {
   }
 
   Future<void> _onShowQrScanner() async {
+    // Check if files are selected first
+    if (_selectedFiles.isEmpty) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: const Text("No Files Selected"),
+                content: const Text(
+                  "Please select files to send before scanning QR code.",
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("OK"),
+                  ),
+                ],
+              ),
+        );
+      }
+      return;
+    }
+
     if (await Permission.camera.isGranted) {
-      setState(() {
-        _showQrScanner = true;
-        widget.onQrScannerVisibilityChanged?.call(true);
-      });
+      if (mounted) {
+        setState(() {
+          _showQrScanner = true;
+          widget.onQrScannerVisibilityChanged?.call(true);
+        });
+      }
     } else {
       final result = await Permission.camera.request();
-      if (result.isGranted) {
+      if (result.isGranted && mounted) {
         setState(() {
           _showQrScanner = true;
           widget.onQrScannerVisibilityChanged?.call(true);

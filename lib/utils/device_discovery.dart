@@ -49,8 +49,9 @@ class DeviceDiscovery extends ChangeNotifier {
               String message = utf8.decode(datagram.data);
               Map<String, dynamic> deviceData = jsonDecode(message);
               DeviceInfo device = DeviceInfo.fromJson(deviceData);
-              
-              if (!_availableDevices.any((d) => d.ip == device.ip) && device.ip != deviceIP) {
+
+              if (!_availableDevices.any((d) => d.ip == device.ip) &&
+                  device.ip != deviceIP) {
                 _availableDevices.add(device);
                 notifyListeners();
               }
@@ -63,7 +64,7 @@ class DeviceDiscovery extends ChangeNotifier {
 
       // Broadcast discovery message
       await _broadcastDiscovery(deviceName, deviceIP);
-      
+
       // Stop scanning after 3 seconds
       Future.delayed(const Duration(seconds: 3), () {
         _isScanning = false;
@@ -77,14 +78,18 @@ class DeviceDiscovery extends ChangeNotifier {
 
   Future<void> _broadcastDiscovery(String deviceName, String deviceIP) async {
     try {
-      DeviceInfo thisDevice = DeviceInfo(name: deviceName, ip: deviceIP, isReceiving: false);
+      DeviceInfo thisDevice = DeviceInfo(
+        name: deviceName,
+        ip: deviceIP,
+        isReceiving: false,
+      );
       String message = jsonEncode(thisDevice.toJson());
       List<int> data = utf8.encode(message);
-      
+
       // Broadcast to subnet
       String subnet = deviceIP.substring(0, deviceIP.lastIndexOf('.'));
       InternetAddress broadcastAddr = InternetAddress('$subnet.255');
-      
+
       _udpSocket?.send(data, broadcastAddr, 5001);
     } catch (e) {
       // Handle broadcast error
@@ -100,7 +105,11 @@ class DeviceDiscovery extends ChangeNotifier {
           if (datagram != null) {
             try {
               // Respond to discovery requests
-              DeviceInfo receiverDevice = DeviceInfo(name: deviceName, ip: deviceIP, isReceiving: true);
+              DeviceInfo receiverDevice = DeviceInfo(
+                name: deviceName,
+                ip: deviceIP,
+                isReceiving: true,
+              );
               String response = jsonEncode(receiverDevice.toJson());
               List<int> data = utf8.encode(response);
               _udpSocket?.send(data, datagram.address, 5001);

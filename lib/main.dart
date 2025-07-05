@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:localshare/notifiers/dark_mode_notifier.dart';
 import 'package:localshare/pages/main_navigation.dart';
 import 'package:localshare/pages/splash_screen.dart';
+import 'package:localshare/utils/settings_manager.dart';
 // import 'package:localshare/pages/permission_screen.dart';
 import 'dart:io';
 
@@ -32,6 +33,9 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _checkInitialPermissions() async {
     try {
+      // Initialize settings manager
+      await SettingsManager().initialize();
+
       // Check essential permissions
       final storageStatus = await Permission.storage.status;
       final locationStatus = await Permission.location.status;
@@ -87,8 +91,8 @@ class _MyAppState extends State<MyApp> {
                     isDark
                         ? Colors.blue.withOpacity(0.2)
                         : Colors.blue.withOpacity(0.1),
-                labelTextStyle: MaterialStateProperty.resolveWith((states) {
-                  if (states.contains(MaterialState.selected)) {
+                labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
                     return TextStyle(
                       color: isDark ? Colors.blue[300] : Colors.blue[700],
                       fontWeight: FontWeight.w600,
@@ -99,8 +103,8 @@ class _MyAppState extends State<MyApp> {
                     fontWeight: FontWeight.normal,
                   );
                 }),
-                iconTheme: MaterialStateProperty.resolveWith((states) {
-                  if (states.contains(MaterialState.selected)) {
+                iconTheme: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
                     return IconThemeData(
                       color: isDark ? Colors.blue[300] : Colors.blue[700],
                       size: 24,
