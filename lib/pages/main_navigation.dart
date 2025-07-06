@@ -26,9 +26,18 @@ class _MainNavigationState extends State<MainNavigation> {
         onQrScannerVisibilityChanged: (hide) {
           setState(() => _hideNavigation = hide);
         },
+        onSendingVisibilityChanged: (hide) {
+          setState(() => _hideNavigation = hide);
+        },
       ),
     );
-    _pages.add(const ReceiveTab());
+    _pages.add(
+      ReceiveTab(
+        onReceivingVisibilityChanged: (hide) {
+          setState(() => _hideNavigation = hide);
+        },
+      ),
+    );
     _pages.add(const SettingsTab());
 
     // Enable auto-scan initially since we start on SendTab (index 0)

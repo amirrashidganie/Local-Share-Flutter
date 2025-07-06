@@ -9,12 +9,13 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:localshare/utils/transfer_manager.dart';
 import 'package:localshare/utils/device_discovery.dart';
 import 'package:localshare/utils/settings_manager.dart';
-import 'package:localshare/components/receivingfilesscreen/receiving_files_screen_widget.dart';
 import 'package:localshare/components/receivingfilesscreen/current_receiving_files.dart';
 import 'package:localshare/components/receivingfilesscreen/received_files_widget.dart';
 
 class ReceiveTab extends StatefulWidget {
-  const ReceiveTab({super.key});
+  const ReceiveTab({super.key, this.onReceivingVisibilityChanged});
+
+  final ValueChanged<bool>? onReceivingVisibilityChanged;
 
   @override
   State<ReceiveTab> createState() => _ReceiveTabState();
@@ -39,6 +40,9 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
   // Animations
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+
+  // Navigation visibility tracking
+  bool _isNavigationHidden = false;
 
   @override
   void initState() {
@@ -139,140 +143,18 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
 
   Future<void> _handleFileReceive(Socket socket) async {
     try {
-      List<int> allData = [];
       String fileName = "";
       int expectedSize = 0;
       bool headerParsed = false;
       DateTime startTime = DateTime.now();
+      int receivedBytes = 0;
 
-      await for (List<int> data in socket) {
-        allData.addAll(data);
-
-        if (!headerParsed && allData.length > 5) {
-          int nameLength = allData[0];
-          if (allData.length >= 5 + nameLength) {
-            fileName = String.fromCharCodes(allData.sublist(1, 1 + nameLength));
-            expectedSize =
-                (allData[1 + nameLength] << 24) |
-                (allData[2 + nameLength] << 16) |
-                (allData[3 + nameLength] << 8) |
-                allData[4 + nameLength];
-            headerParsed = true;
-            print(
-              'DEBUG: Header parsed - File: $fileName, Expected size: $expectedSize bytes',
-            );
-
-            // Use addPostFrameCallback to avoid calling notifyListeners during build
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                print('DEBUG: Starting to receive file: $fileName');
-                _transferManager.startReceiving(fileName, expectedSize);
-
-                // Show receiving screen as modal dialog
-                _showReceivingModal();
-
-                // Show notification that file transfer has started
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text("Receiving: $fileName"),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-            });
-          }
-        }
-
-        if (headerParsed && mounted) {
-          int receivedBytes = allData.length - 5 - fileName.length;
-          double progress = receivedBytes / expectedSize;
-          double elapsedSeconds =
-              DateTime.now().difference(startTime).inMilliseconds / 1000;
-          double speed =
-              elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0;
-
-          // Use addPostFrameCallback to avoid calling notifyListeners during build
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              double clampedProgress = progress.clamp(0.0, 1.0);
-              print(
-                'DEBUG: Receiving progress: ${(clampedProgress * 100).toStringAsFixed(1)}%, Speed: ${(speed / (1024 * 1024)).toStringAsFixed(2)} MB/s',
-              );
-              _transferManager.updateReceiveProgress(
-                fileName,
-                clampedProgress,
-                speed,
-                receivedBytes,
-              );
-            }
-          });
-        }
-      }
-
-      if (allData.isNotEmpty && headerParsed) {
-        List<int> fileData = allData.sublist(5 + fileName.length);
-        await _saveFile(fileName, fileData);
-
-        // Use addPostFrameCallback to avoid calling notifyListeners during build
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            print('DEBUG: File received successfully: $fileName');
-            _transferManager.completeReceiving(fileName);
-
-            // Check if all files are complete
-            if (_transferManager.isTransferComplete) {
-              // Show completion notification for all files
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("All files received successfully!"),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            } else {
-              // Show completion notification for individual file
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("File '$fileName' received successfully!"),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-          }
-        });
-      }
-    } catch (e) {
-      print('Error receiving file: $e');
-      if (mounted) {
-        // Close the receiving modal if it's open
-        if (_isModalShown) {
-          Navigator.of(context).pop();
-          _isModalShown = false;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error receiving file: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      socket.close();
-    }
-  }
-
-  Future<void> _saveFile(String fileName, List<int> bytes) async {
-    try {
+      // Use streaming approach instead of loading everything into memory
       final settingsManager = SettingsManager();
       Directory saveDir = await settingsManager.getCurrentSaveDirectory();
 
-      print('DEBUG: Attempting to save to directory: ${saveDir.path}');
-
       // Create the directory if it doesn't exist
       if (!await saveDir.exists()) {
-        print('DEBUG: Creating directory: ${saveDir.path}');
         await saveDir.create(recursive: true);
       }
 
@@ -286,51 +168,187 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
           String extension = fileName.substring(lastDotIndex);
           finalFileName = '${nameWithoutExt}_$counter$extension';
         } else {
-          // File has no extension
           finalFileName = '${fileName}_$counter';
         }
         counter++;
       }
 
-      // Save the file
       final file = File('${saveDir.path}/$finalFileName');
-      print('DEBUG: Saving file to: ${file.path}');
-      await file.writeAsBytes(bytes);
+      final sink = file.openWrite();
 
-      // Show success message with file location
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("File saved: $finalFileName"),
-                Text(
-                  "Location: ${saveDir.path}",
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: "Open",
-              onPressed: () => _openFileLocation(saveDir.path),
-            ),
-          ),
+      // Add timeout for receiving
+      bool timeoutOccurred = false;
+      Timer? timeoutTimer;
+
+      void startTimeout() {
+        timeoutTimer?.cancel();
+        timeoutTimer = Timer(
+          Duration(seconds: settingsManager.networkTimeout),
+          () {
+            timeoutOccurred = true;
+            socket.close();
+          },
         );
       }
 
-      print('File saved successfully: ${file.path}');
+      startTimeout();
+
+      await for (List<int> data in socket) {
+        if (!mounted || timeoutOccurred) {
+          sink.close();
+          return;
+        }
+
+        // Reset timeout on each data chunk
+        startTimeout();
+
+        if (!headerParsed && data.length > 5) {
+          // Parse header from first chunk
+          int nameLength = data[0];
+          if (data.length >= 5 + nameLength) {
+            fileName = String.fromCharCodes(data.sublist(1, 1 + nameLength));
+            expectedSize =
+                (data[1 + nameLength] << 24) |
+                (data[2 + nameLength] << 16) |
+                (data[3 + nameLength] << 8) |
+                data[4 + nameLength];
+            headerParsed = true;
+
+            // Check file size limit (2GB)
+            if (expectedSize > 2 * 1024 * 1024 * 1024) {
+              throw Exception('File size exceeds 2GB limit');
+            }
+
+            print(
+              'DEBUG: Header parsed - File: $fileName, Expected size: $expectedSize bytes',
+            );
+
+            // Update final filename with actual filename
+            finalFileName = fileName;
+            counter = 1;
+            while (await File('${saveDir.path}/$finalFileName').exists()) {
+              int lastDotIndex = fileName.lastIndexOf('.');
+              if (lastDotIndex > 0) {
+                String nameWithoutExt = fileName.substring(0, lastDotIndex);
+                String extension = fileName.substring(lastDotIndex);
+                finalFileName = '${nameWithoutExt}_$counter$extension';
+              } else {
+                finalFileName = '${fileName}_$counter';
+              }
+              counter++;
+            }
+
+            final actualFile = File('${saveDir.path}/$finalFileName');
+            sink.close();
+            final newSink = actualFile.openWrite();
+
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                print('DEBUG: Starting to receive file: $fileName');
+                _transferManager.startReceiving(fileName, expectedSize);
+              }
+            });
+
+            // Write file data (excluding header)
+            List<int> fileData = data.sublist(5 + nameLength);
+            if (fileData.isNotEmpty) {
+              newSink.add(fileData);
+              receivedBytes += fileData.length;
+            }
+
+            // Continue with the new sink
+            await for (List<int> chunk in socket) {
+              if (!mounted || timeoutOccurred) {
+                newSink.close();
+                return;
+              }
+
+              // Reset timeout on each chunk
+              startTimeout();
+
+              newSink.add(chunk);
+              receivedBytes += chunk.length;
+
+              double progress = receivedBytes / expectedSize;
+              double elapsedSeconds =
+                  DateTime.now().difference(startTime).inMilliseconds / 1000;
+              double speed =
+                  elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0;
+
+              // Update progress less frequently to reduce UI updates
+              if (receivedBytes % (1024 * 1024) == 0 ||
+                  receivedBytes == expectedSize) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    double clampedProgress = progress.clamp(0.0, 1.0);
+                    _transferManager.updateReceiveProgress(
+                      fileName,
+                      clampedProgress,
+                      speed,
+                      receivedBytes,
+                    );
+                  }
+                });
+              }
+            }
+
+            await newSink.close();
+            break;
+          }
+        } else if (headerParsed) {
+          // Continue receiving file data
+          sink.add(data);
+          receivedBytes += data.length;
+
+          double progress = receivedBytes / expectedSize;
+          double elapsedSeconds =
+              DateTime.now().difference(startTime).inMilliseconds / 1000;
+          double speed =
+              elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0;
+
+          // Update progress less frequently to reduce UI updates
+          if (receivedBytes % (1024 * 1024) == 0 ||
+              receivedBytes == expectedSize) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                double clampedProgress = progress.clamp(0.0, 1.0);
+                _transferManager.updateReceiveProgress(
+                  fileName,
+                  clampedProgress,
+                  speed,
+                  receivedBytes,
+                );
+              }
+            });
+          }
+        }
+      }
+
+      timeoutTimer?.cancel();
+      await sink.close();
+
+      if (timeoutOccurred) {
+        throw Exception('Transfer timeout - connection lost');
+      }
+
+      if (headerParsed && receivedBytes > 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            print('DEBUG: File received successfully: $fileName');
+            _transferManager.completeReceiving(fileName);
+          }
+        });
+      }
     } catch (e) {
-      print('Error saving file: $e');
+      print('Error receiving file: $e');
       if (mounted) {
-        String errorMessage = "Error saving file";
-        if (e.toString().contains("Permission denied")) {
-          errorMessage =
-              "Permission denied. Please check storage permissions in app settings.";
-        } else if (e.toString().contains("No space left")) {
-          errorMessage = "No space left on device";
+        String errorMessage = "Error receiving file";
+        if (e.toString().contains("timeout")) {
+          errorMessage = "Transfer timeout - connection lost";
+        } else if (e.toString().contains("2GB")) {
+          errorMessage = "File size exceeds 2GB limit";
+        } else if (e.toString().contains("Permission denied")) {
+          errorMessage = "Permission denied. Please check storage permissions.";
         } else {
           errorMessage = "Error: ${e.toString()}";
         }
@@ -343,44 +361,9 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
           ),
         );
       }
+    } finally {
+      socket.close();
     }
-  }
-
-  void _openFileLocation(String path) {
-    // This would typically open the file manager to the specific location
-    // For now, we'll show a dialog with the path
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text("File Location"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text("File saved to:"),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    path,
-                    style: const TextStyle(fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("OK"),
-              ),
-            ],
-          ),
-    );
   }
 
   @override
@@ -397,6 +380,11 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     if (_isModalShown) {
       Navigator.of(context).pop();
       _isModalShown = false;
+    }
+    // Ensure navigation bar is shown when widget is disposed
+    if (_isNavigationHidden) {
+      _isNavigationHidden = false;
+      widget.onReceivingVisibilityChanged?.call(false);
     }
     super.dispose();
   }
@@ -458,12 +446,31 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     return ListenableBuilder(
       listenable: _transferManager,
       builder: (context, child) {
-        // Show dedicated receiving screen when receiving files
-        if (_transferManager.isReceiving) {
-          return const ReceivingFilesScreen();
+        // Show dedicated receiving screen when receiving files or when transfer is complete
+        if (_transferManager.isReceiving ||
+            _transferManager.isTransferComplete) {
+          // Hide navigation bar when receiving screen is active
+          if (!_isNavigationHidden) {
+            _isNavigationHidden = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                widget.onReceivingVisibilityChanged?.call(true);
+              }
+            });
+          }
+          return _buildReceivingScreen();
         }
 
         // Show main receive screen when not receiving
+        // Show navigation bar when main screen is active
+        if (_isNavigationHidden) {
+          _isNavigationHidden = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              widget.onReceivingVisibilityChanged?.call(false);
+            }
+          });
+        }
         return Scaffold(
           appBar: AppBar(
             title: const Text("LocalShare"),
@@ -478,6 +485,85 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
           body: SingleChildScrollView(child: _buildMainReceiveScreen()),
         );
       },
+    );
+  }
+
+  Widget _buildReceivingScreen() {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          _transferManager.isTransferComplete
+              ? "Transfer Complete"
+              : "Receiving Files",
+        ),
+        backgroundColor:
+            _transferManager.isTransferComplete ? Colors.green : Colors.blue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Stack(
+        children: [
+          // Main receiving content
+          SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Current receiving files
+                _buildCurrentReceivingFilesCard(),
+
+                const SizedBox(height: 20),
+
+                // Overall progress
+                _buildOverallProgressCard(),
+
+                const SizedBox(height: 20),
+
+                // Transfer statistics
+                _buildTransferStatisticsCard(),
+
+                const SizedBox(height: 20),
+
+                // Save location info
+                _buildSaveLocationInfo(),
+
+                const SizedBox(height: 100), // Space for floating buttons
+              ],
+            ),
+          ),
+
+          // Cancel button (when receiving is in progress)
+          if (_transferManager.isReceiving &&
+              !_transferManager.isTransferComplete)
+            Positioned(
+              bottom: 20,
+              left: 20,
+              right: 20,
+              child: FloatingActionButton.extended(
+                onPressed: _onCancelReceiving,
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.cancel),
+                label: const Text("Cancel"),
+              ),
+            ),
+
+          // Done button (when transfer is complete)
+          if (_transferManager.isTransferComplete)
+            Positioned(
+              bottom: 20,
+              left: 20,
+              right: 20,
+              child: FloatingActionButton.extended(
+                onPressed: _onTransferComplete,
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.check),
+                label: const Text("Done"),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -523,7 +609,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 16),
             const Text(
-              "Scan this QR code to send files",
+              "Scan this QR code to receive files",
               style: TextStyle(fontSize: 16),
             ),
             const SizedBox(height: 20),
@@ -549,6 +635,8 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
                   Flexible(
                     child: Text(
                       "Files will be saved to: ${_getSaveLocationDisplay()}",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(
@@ -772,205 +860,6 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     );
   }
 
-  void _showReceivingModal() {
-    if (!_transferManager.isReceiving || _isModalShown) return;
-
-    _isModalShown = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false, // Prevent closing by tapping outside
-      builder:
-          (context) => WillPopScope(
-            onWillPop: () async => false, // Prevent closing with back button
-            child: Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: EdgeInsets.zero,
-              child: Container(
-                width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.height,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      const Color(0xFF2C1D4D),
-                      const Color(0xFF2C1D4D).withOpacity(0.8),
-                    ],
-                  ),
-                ),
-                child: SafeArea(
-                  child: Column(
-                    children: [
-                      // Enhanced Header with Cancel Button
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
-                          borderRadius: const BorderRadius.only(
-                            bottomLeft: Radius.circular(20),
-                            bottomRight: Radius.circular(20),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              onPressed: () {
-                                _showCancelReceiveDialog();
-                              },
-                              icon: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.close,
-                                  color: Colors.red,
-                                  size: 20,
-                                ),
-                              ),
-                            ),
-                            const Expanded(
-                              child: Text(
-                                "Receiving Files",
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                            const SizedBox(
-                              width: 48,
-                            ), // Balance the close button
-                          ],
-                        ),
-                      ),
-
-                      // Main receiving content
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Column(
-                              children: [
-                                const SizedBox(height: 20),
-
-                                // Files list
-                                _buildFilesList(),
-
-                                const SizedBox(height: 20),
-
-                                // Network status
-                                _buildNetworkStatus(),
-
-                                const SizedBox(height: 20),
-
-                                // Overall progress
-                                _buildOverallProgress(),
-
-                                const SizedBox(height: 20),
-
-                                // Save location info
-                                _buildSaveLocationInfo(),
-
-                                const SizedBox(height: 20),
-
-                                // Transfer statistics
-                                _buildTransferStatistics(),
-
-                                const SizedBox(height: 20),
-
-                                // Action button (Cancel or Done)
-                                _buildActionButton(),
-
-                                const SizedBox(height: 20),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-    );
-  }
-
-  void _showCancelReceiveDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text("Cancel Receiving"),
-            content: const Text(
-              "Are you sure you want to cancel the file transfer? This may interrupt the current file being received.",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Continue Receiving"),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context); // Close the cancel dialog
-                  Navigator.pop(context); // Close the receiving modal
-                  _isModalShown = false;
-                  // Close the server connection to stop receiving
-                  _server?.close();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("File transfer cancelled")),
-                    );
-                  }
-                },
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                child: const Text("Cancel"),
-              ),
-            ],
-          ),
-    );
-  }
-
-  Widget _buildFilesList() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blue.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Icon(Icons.file_copy, color: Colors.blue, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  "Receiving Files (${_transferManager.receivingFiles.length})",
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Files list
-          ..._transferManager.receivingFiles.map(
-            (file) => _buildFileItem(file),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildFileItem(ReceivingFile file) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -1136,164 +1025,6 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNetworkStatus() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blue.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          // Network status header
-          Row(
-            children: [
-              Icon(
-                _connectionType == "WiFi"
-                    ? Icons.wifi
-                    : Icons.signal_cellular_alt,
-                color: Colors.blue,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "Network Status",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Connection info
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Connection: $_connectionType",
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  Text(
-                    "Network: $_ssid",
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  AnimatedBuilder(
-                    animation: _pulseAnimation,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale:
-                            _currentNetworkSpeed > 0
-                                ? _pulseAnimation.value
-                                : 1.0,
-                        child: Text(
-                          "Total Speed: ${_formatSpeed(_currentNetworkSpeed)}",
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.green,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  Text(
-                    "IP: $receiverIP",
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOverallProgress() {
-    final completedFiles =
-        _transferManager.receivingFiles.where((f) => f.isComplete).length;
-    final totalFiles = _transferManager.receivingFiles.length;
-    final overallProgress = totalFiles > 0 ? completedFiles / totalFiles : 0.0;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blue.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          // Overall progress header
-          Row(
-            children: [
-              Icon(Icons.download_rounded, color: Colors.blue, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                "Overall Progress",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Overall progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: overallProgress,
-              backgroundColor: Colors.grey[300],
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-              minHeight: 12,
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Progress details
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                "Completed: $completedFiles/$totalFiles files",
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.blue,
-                ),
-              ),
-              Text(
-                "${(overallProgress * 100).toStringAsFixed(1)}%",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSaveLocationInfo() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1336,102 +1067,6 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildTransferStatistics() {
-    final totalFiles = _transferManager.receivingFiles.length;
-    final completedFiles =
-        _transferManager.receivingFiles.where((f) => f.isComplete).length;
-    final totalSize = _transferManager.receivingFiles.fold<int>(
-      0,
-      (sum, file) => sum + file.fileSize,
-    );
-    final receivedSize = _transferManager.receivingFiles.fold<int>(
-      0,
-      (sum, file) => sum + file.receivedBytes,
-    );
-    final avgSpeed =
-        _transferManager.receivingFiles.isNotEmpty
-            ? _transferManager.receivingFiles
-                    .map((f) => f.speed)
-                    .reduce((a, b) => a + b) /
-                _transferManager.receivingFiles.length
-            : 0.0;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.blue.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          // Statistics header
-          Row(
-            children: [
-              Icon(Icons.analytics, color: Colors.blue, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                "Transfer Statistics",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Statistics grid
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatItem(
-                  "Files",
-                  "$completedFiles/$totalFiles",
-                  Icons.file_copy,
-                  Colors.blue,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStatItem(
-                  "Data",
-                  "${_formatFileSize(receivedSize)}/${_formatFileSize(totalSize)}",
-                  Icons.storage,
-                  Colors.green,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatItem(
-                  "Avg Speed",
-                  _formatSpeed(avgSpeed),
-                  Icons.speed,
-                  Colors.orange,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStatItem(
-                  "Status",
-                  _transferManager.isTransferComplete ? "Complete" : "Active",
-                  Icons.info,
-                  _transferManager.isTransferComplete
-                      ? Colors.green
-                      : Colors.blue,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildStatItem(
     String label,
     String value,
@@ -1468,48 +1103,250 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildActionButton() {
+  // Receiving screen helper methods
+  Widget _buildCurrentReceivingFilesCard() {
+    final isComplete = _transferManager.isTransferComplete;
+
     return Container(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: () {
-          if (_transferManager.isTransferComplete) {
-            // Close modal when transfer is complete
-            Navigator.of(context).pop();
-            _isModalShown = false;
-          } else {
-            // Show cancel dialog when transfer is in progress
-            _showCancelReceiveDialog();
-          }
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor:
-              _transferManager.isTransferComplete
-                  ? Colors.green.withOpacity(0.1)
-                  : Colors.red.withOpacity(0.1),
-          foregroundColor:
-              _transferManager.isTransferComplete ? Colors.green : Colors.red,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color:
-                  _transferManager.isTransferComplete
-                      ? Colors.green.withOpacity(0.3)
-                      : Colors.red.withOpacity(0.3),
-            ),
-          ),
-        ),
-        icon: Icon(
-          _transferManager.isTransferComplete
-              ? Icons.check_circle_outline
-              : Icons.cancel_outlined,
-        ),
-        label: Text(
-          _transferManager.isTransferComplete ? "Done" : "Cancel Transfer",
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color:
+            isComplete
+                ? Colors.green.withOpacity(0.1)
+                : Colors.blue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color:
+              isComplete
+                  ? Colors.green.withOpacity(0.3)
+                  : Colors.blue.withOpacity(0.3),
         ),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isComplete ? Icons.check_circle : Icons.download_rounded,
+                color: isComplete ? Colors.green : Colors.blue,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isComplete ? "Transfer Complete" : "Receiving Files",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Files list
+          ..._transferManager.receivingFiles.map(
+            (file) => _buildFileItem(file),
+          ),
+        ],
+      ),
     );
+  }
+
+  Widget _buildOverallProgressCard() {
+    final isComplete = _transferManager.isTransferComplete;
+    final totalFiles = _transferManager.receivingFiles.length;
+    final completedFiles =
+        _transferManager.receivingFiles.where((f) => f.isComplete).length;
+    final overallProgress = totalFiles > 0 ? completedFiles / totalFiles : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isComplete ? Icons.check_circle : Icons.download_rounded,
+                color: Colors.green,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isComplete ? "Transfer Complete" : "Overall Progress",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Overall progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: overallProgress,
+              backgroundColor: Colors.grey[300],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
+              minHeight: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Completed: $completedFiles/$totalFiles files",
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.green,
+                ),
+              ),
+              Text(
+                isComplete
+                    ? "100%"
+                    : "${(overallProgress * 100).toStringAsFixed(1)}%",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransferStatisticsCard() {
+    final isComplete = _transferManager.isTransferComplete;
+    final totalFiles = _transferManager.receivingFiles.length;
+    final completedFiles =
+        _transferManager.receivingFiles.where((f) => f.isComplete).length;
+    final totalSize = _transferManager.receivingFiles.fold<int>(
+      0,
+      (sum, file) => sum + file.fileSize,
+    );
+    final receivedSize = _transferManager.receivingFiles.fold<int>(
+      0,
+      (sum, file) => sum + file.receivedBytes,
+    );
+    final avgSpeed =
+        _transferManager.receivingFiles.isNotEmpty
+            ? _transferManager.receivingFiles
+                    .map((f) => f.speed)
+                    .reduce((a, b) => a + b) /
+                _transferManager.receivingFiles.length
+            : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.analytics, color: Colors.orange, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                "Transfer Statistics",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatItem(
+                  "Files",
+                  "$completedFiles/$totalFiles",
+                  Icons.file_copy,
+                  Colors.blue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatItem(
+                  "Data",
+                  "${_formatFileSize(receivedSize)}/${_formatFileSize(totalSize)}",
+                  Icons.storage,
+                  Colors.green,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatItem(
+                  "Avg Speed",
+                  _formatSpeed(avgSpeed),
+                  Icons.speed,
+                  Colors.orange,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatItem(
+                  "Status",
+                  isComplete ? "Complete" : "Active",
+                  Icons.info,
+                  isComplete ? Colors.green : Colors.blue,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onCancelReceiving() {
+    // Stop receiving and return to main receive screen
+    setState(() {
+      _transferManager.resetReceivingState();
+    });
+  }
+
+  void _onTransferComplete() {
+    // Show navigation bar immediately when Done is clicked
+    if (_isNavigationHidden) {
+      _isNavigationHidden = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onReceivingVisibilityChanged?.call(false);
+        }
+      });
+    }
+
+    // Clear selected files and stop receiving state
+    setState(() {
+      _transferManager.resetReceivingState();
+    });
+
+    // Stop the receiving state to return to main screen
+    _transferManager.resetReceivingState();
   }
 }

@@ -90,8 +90,12 @@ class TransferManager extends ChangeNotifier {
   factory TransferManager() => _instance;
   TransferManager._internal();
 
+  // Callback for when receiver completes transfer
+  VoidCallback? _onReceiverComplete;
+
   // Sending state
   bool _isSending = false;
+  bool _isSendingComplete = false; // Track if sending is complete
   List<File> _sendingFiles = [];
   int _currentSendingIndex = 0;
   double _sendProgress = 0.0;
@@ -106,6 +110,7 @@ class TransferManager extends ChangeNotifier {
 
   // Getters
   bool get isSending => _isSending;
+  bool get isSendingComplete => _isSendingComplete;
   bool get isReceiving => _isReceiving;
   List<File> get sendingFiles => _sendingFiles;
   int get currentSendingIndex => _currentSendingIndex;
@@ -128,6 +133,7 @@ class TransferManager extends ChangeNotifier {
 
   void startSending(List<File> files) {
     _isSending = true;
+    _isSendingComplete = false;
     _sendingFiles = files;
     _currentSendingIndex = 0;
     _sendProgress = 0.0;
@@ -154,11 +160,18 @@ class TransferManager extends ChangeNotifier {
 
   void stopSending() {
     _isSending = false;
+    _isSendingComplete = false;
     _sendingFiles.clear();
     _currentSendingIndex = 0;
     _sendProgress = 0.0;
     _sendingFileName = "";
     _sendSpeed = 0.0;
+    notifyListeners();
+  }
+
+  void completeSending() {
+    _isSendingComplete = true;
+    _sendProgress = 1.0;
     notifyListeners();
   }
 
@@ -251,5 +264,15 @@ class TransferManager extends ChangeNotifier {
   void resetReceiveCount() {
     _receivedFilesCount = 0;
     notifyListeners();
+  }
+
+  // Set callback for when receiver completes transfer
+  void setReceiverCompleteCallback(VoidCallback callback) {
+    _onReceiverComplete = callback;
+  }
+
+  // Trigger receiver complete callback
+  void notifyReceiverComplete() {
+    _onReceiverComplete?.call();
   }
 }
