@@ -100,8 +100,11 @@ class TransferManager extends ChangeNotifier {
   int _currentSendingIndex = 0;
   double _sendProgress = 0.0;
   String _sendingFileName = "";
+  //real ETA in minutes and seconds
+  String _estimatedTimeRemaining =
+      "Calculating..."; //TODO: calculate the real ETA
   double _sendSpeed = 0.0;
-
+  int _sendingFileSize = 0;
   // Receiving state
   bool _isReceiving = false;
   List<ReceivingFile> _receivingFiles = [];
@@ -116,7 +119,10 @@ class TransferManager extends ChangeNotifier {
   int get currentSendingIndex => _currentSendingIndex;
   double get sendProgress => _sendProgress;
   String get sendingFileName => _sendingFileName;
+  String get estimatedTimeRemaining =>
+      _estimatedTimeRemaining; //TODO: calculate the real ETA in minutes and seconds
   double get sendSpeed => _sendSpeed;
+  int get sendingFileSize => _sendingFileSize;
   List<ReceivingFile> get receivingFiles => _receivingFiles;
   int get receivedFilesCount => _receivedFilesCount;
   bool get isTransferComplete => _isTransferComplete;
@@ -138,6 +144,7 @@ class TransferManager extends ChangeNotifier {
     _currentSendingIndex = 0;
     _sendProgress = 0.0;
     _sendingFileName = files.isNotEmpty ? files.first.path.split('/').last : "";
+    _sendingFileSize = files.isNotEmpty ? files.first.lengthSync() : 0;
     notifyListeners();
   }
 

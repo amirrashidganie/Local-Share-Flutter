@@ -10,7 +10,7 @@ import 'package:localshare/utils/transfer_manager.dart';
 import 'package:localshare/utils/device_discovery.dart';
 import 'package:localshare/utils/settings_manager.dart';
 import 'package:localshare/components/receivingfilesscreen/current_receiving_files.dart';
-import 'package:localshare/components/receivingfilesscreen/received_files_widget.dart';
+// import 'package:localshare/components/receivingfilesscreen/received_files_widget.dart';
 
 class ReceiveTab extends StatefulWidget {
   const ReceiveTab({super.key, this.onReceivingVisibilityChanged});
@@ -663,7 +663,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
           const CurrentReceivingFiles(),
 
           // Show received files history
-          const ReceivedFilesWidget(),
+          // const ReceivedFilesWidget(),
         ],
       ),
     );
@@ -870,20 +870,20 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
 
   Widget _buildFileItem(ReceivingFile file) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      padding: const EdgeInsets.all(16),
+      // margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
       decoration: BoxDecoration(
         color:
             file.isComplete
                 ? Colors.green.withOpacity(0.1)
                 : Colors.blue.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color:
-              file.isComplete
-                  ? Colors.green.withOpacity(0.3)
-                  : Colors.blue.withOpacity(0.3),
-        ),
+        // border: Border.all(
+        //   color:
+        //       file.isComplete
+        //           ? Colors.green.withOpacity(0.3)
+        //           : Colors.blue.withOpacity(0.3),
+        // ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1133,24 +1133,24 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                isComplete ? Icons.check_circle : Icons.download_rounded,
-                color: isComplete ? Colors.green : Colors.blue,
-                size: 24,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                isComplete ? "Transfer Complete" : "Receiving Files",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+          // Row(
+          //   children: [
+          //     Icon(
+          //       isComplete ? Icons.check_circle : Icons.download_rounded,
+          //       color: isComplete ? Colors.green : Colors.blue,
+          //       size: 24,
+          //     ),
+          //     const SizedBox(width: 8),
+          //     Text(
+          //       isComplete ? "Transfer Complete" : "Receiving Files",
+          //       style: const TextStyle(
+          //         fontSize: 16,
+          //         fontWeight: FontWeight.bold,
+          //       ),
+          //     ),
+          //   ],
+          // ),
+          // const SizedBox(height: 16),
 
           // Files list
           ..._transferManager.receivingFiles.map(
@@ -1169,7 +1169,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     final overallProgress = totalFiles > 0 ? completedFiles / totalFiles : 0.0;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.green.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
@@ -1204,7 +1204,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
               value: overallProgress,
               backgroundColor: Colors.grey[300],
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
-              minHeight: 12,
+              minHeight: 8,
             ),
           ),
           const SizedBox(height: 12),
@@ -1213,7 +1213,9 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "Completed: $completedFiles/$totalFiles files",
+                isComplete
+                    ? "Completed: $totalFiles/$totalFiles files"
+                    : "Completed: $completedFiles/$totalFiles files",
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

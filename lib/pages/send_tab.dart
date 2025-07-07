@@ -754,11 +754,28 @@ class _SendTabState extends State<SendTab> {
     );
   }
 
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) {
+      return '$bytes B';
+    } else if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    } else if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } else {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+  }
+
   Widget _buildSendingScreen() {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Sending Files"),
-        backgroundColor: Colors.blue,
+        title: Text(
+          _transferManager.isSendingComplete
+              ? "Transfer Complete"
+              : "Sending Files",
+        ),
+        backgroundColor:
+            _transferManager.isSendingComplete ? Colors.green : Colors.blue,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
@@ -793,23 +810,53 @@ class _SendTabState extends State<SendTab> {
             ),
           ),
 
-          // Floating Add button
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: FloatingActionButton(
-              onPressed: _showAddFilesModal,
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-              child: const Icon(Icons.add),
-            ),
-          ),
+          // // Floating Add button
+          // Positioned(
+          //   bottom: 20,
+          //   right: 20,
+          //   child: FloatingActionButton(
+          //     onPressed: _showAddFilesModal,
+          //     backgroundColor: Colors.blue,
+          //     foregroundColor: Colors.white,
+          //     child: const Icon(Icons.add),
+          //   ),
+          // ),
 
-          // Cancel button (when sending is in progress)
-          if (_transferManager.isSending)
+          // // Cancel button (when sending is in progress)
+          // if (_transferManager.isSending)
+          //   Positioned(
+          //     bottom: 20,
+          //     left: 20,
+          //     child: FloatingActionButton.extended(
+          //       onPressed: _onCancelSending,
+          //       backgroundColor: Colors.red,
+          //       foregroundColor: Colors.white,
+          //       icon: const Icon(Icons.cancel),
+          //       label: const Text("Cancel"),
+          //     ),
+          //   ),
+
+          // // Done button (when transfer is complete)
+          // if (_transferManager.isSendingComplete)
+          //   Positioned(
+          //     bottom: 20,
+          //     left: 20,
+          //     child: FloatingActionButton.extended(
+          //       onPressed: _onTransferComplete,
+          //       backgroundColor: Colors.green,
+          //       foregroundColor: Colors.white,
+          //       icon: const Icon(Icons.check),
+          //       label: const Text("Done"),
+          //     ),
+          //   ),
+
+          // Cancel button (when receiving is in progress)
+          if (_transferManager.isSending &&
+              !_transferManager.isTransferComplete)
             Positioned(
               bottom: 20,
               left: 20,
+              right: 20,
               child: FloatingActionButton.extended(
                 onPressed: _onCancelSending,
                 backgroundColor: Colors.red,
@@ -824,6 +871,7 @@ class _SendTabState extends State<SendTab> {
             Positioned(
               bottom: 20,
               left: 20,
+              right: 20,
               child: FloatingActionButton.extended(
                 onPressed: _onTransferComplete,
                 backgroundColor: Colors.green,
@@ -1875,31 +1923,82 @@ class _SendTabState extends State<SendTab> {
                 size: 32,
               ),
               const SizedBox(width: 12),
+              // File name and size
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isComplete
-                          ? "Transfer Complete"
-                          : _transferManager.sendingFileName,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: isComplete ? Colors.green : Colors.black,
+                      _transferManager.sendingFileName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 4),
                     Text(
-                      isComplete
-                          ? "All files sent successfully"
-                          : "File ${_transferManager.currentSendingIndex + 1} of ${_transferManager.sendingFiles.length}",
-                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                      _transferManager.sendingFileSize == 0
+                          ? "Unknown size"
+                          : _formatFileSize(_transferManager.sendingFileSize),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
               ),
+
+              // Status indicator
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color:
+                      _transferManager.isSendingComplete
+                          ? Colors.green.withOpacity(0.2)
+                          : Colors.blue.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _transferManager.isSendingComplete ? "Complete" : "Sending",
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color:
+                        _transferManager.isSendingComplete
+                            ? Colors.green
+                            : Colors.blue,
+                  ),
+                ),
+              ),
+              // Expanded(
+              //   child: Column(
+              //     crossAxisAlignment: CrossAxisAlignment.start,
+              //     children: [
+              //       Text(
+              //         isComplete
+              //             ? "Transfer Complete"
+              //             : _transferManager.sendingFileName,
+              //         style: TextStyle(
+              //           fontSize: 18,
+              //           fontWeight: FontWeight.bold,
+              //           color: isComplete ? Colors.green : Colors.white,
+              //         ),
+              //         maxLines: 1,
+              //         overflow: TextOverflow.ellipsis,
+              //       ),
+              //       Text(
+              //         isComplete
+              //             ? "All files sent successfully"
+              //             : "File ${_transferManager.currentSendingIndex + 1} of ${_transferManager.sendingFiles.length}",
+              //         style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              //       ),
+              //     ],
+              //   ),
+              // ),
             ],
           ),
           const SizedBox(height: 16),
@@ -1913,36 +2012,108 @@ class _SendTabState extends State<SendTab> {
               valueColor: AlwaysStoppedAnimation<Color>(
                 isComplete ? Colors.green : Colors.blue,
               ),
-              minHeight: 12,
+              minHeight: 5,
             ),
           ),
           const SizedBox(height: 12),
-
-          // Progress details
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                isComplete
-                    ? "100%"
-                    : "${(_transferManager.sendProgress * 100).toStringAsFixed(1)}%",
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: isComplete ? Colors.green : Colors.blue,
-                ),
+          // Progress section
+          if (!_transferManager.isSendingComplete) ...[
+            // Progress bar
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: _transferManager.sendProgress,
+                backgroundColor: Colors.grey[300],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                minHeight: 8,
               ),
-              if (!isComplete)
+            ),
+            const SizedBox(height: 8),
+
+            // Progress details row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Progress: ${(_transferManager.sendProgress * 100).toStringAsFixed(1)}%",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue,
+                      ),
+                    ),
+                    Text(
+                      //SHOW THE REAL ESTIMATED TIME REMAINING IN MINUTES AND SECONDS
+                      "ETA: ${_transferManager.estimatedTimeRemaining}",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      "Speed: ${_transferManager.sendSpeed.toStringAsFixed(1)} MB/s",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green,
+                      ),
+                    ),
+                    Text(
+                      "${_formatFileSize(_transferManager.sendingFileSize)} / ${_formatFileSize(_transferManager.sendingFileSize)}",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ] else ...[
+            // Completion indicator
+            Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 20),
+                const SizedBox(width: 8),
                 Text(
-                  "${_transferManager.sendSpeed.toStringAsFixed(1)} MB/s",
+                  "File received successfully",
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: Colors.green,
                   ),
                 ),
-            ],
-          ),
+              ],
+            ),
+          ],
+
+          // // Progress details
+          // Row(
+          //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          //   children: [
+          //     Text(
+          //       isComplete
+          //           ? "100%"
+          //           : "${(_transferManager.sendProgress * 100).toStringAsFixed(1)}%",
+          //       style: TextStyle(
+          //         fontSize: 16,
+          //         fontWeight: FontWeight.bold,
+          //         color: isComplete ? Colors.green : Colors.blue,
+          //       ),
+          //     ),
+          //     if (!isComplete)
+          //       Text(
+          //         "${_transferManager.sendSpeed.toStringAsFixed(1)} MB/s",
+          //         style: const TextStyle(
+          //           fontSize: 14,
+          //           fontWeight: FontWeight.w600,
+          //           color: Colors.green,
+          //         ),
+          //       ),
+          //   ],
+          // ),
         ],
       ),
     );
@@ -1994,7 +2165,7 @@ class _SendTabState extends State<SendTab> {
               value: overallProgress,
               backgroundColor: Colors.grey[300],
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
-              minHeight: 12,
+              minHeight: 8,
             ),
           ),
           const SizedBox(height: 12),
