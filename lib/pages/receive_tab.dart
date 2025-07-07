@@ -133,11 +133,28 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
         InternetAddress.anyIPv4,
         settingsManager.transferPort,
       );
-      _server!.listen((Socket socket) async {
-        if (mounted) await _handleFileReceive(socket);
-      });
+      _server!.listen(
+        (Socket socket) async {
+          if (mounted) {
+            try {
+              await _handleFileReceive(socket);
+            } catch (e) {
+              print('Error handling file receive: $e');
+              // Don't crash the server, just log the error
+            }
+          }
+        },
+        onError: (error) {
+          print('Server error: $error');
+          // Handle server errors gracefully
+        },
+        onDone: () {
+          print('Server done');
+        },
+      );
     } catch (e) {
-      // Handle silently
+      print('Server start error: $e');
+      // Handle silently but log for debugging
     }
   }
 
@@ -158,27 +175,10 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
         await saveDir.create(recursive: true);
       }
 
-      // Check if file already exists and handle duplicates
-      String finalFileName = fileName;
-      int counter = 1;
-      while (await File('${saveDir.path}/$finalFileName').exists()) {
-        int lastDotIndex = fileName.lastIndexOf('.');
-        if (lastDotIndex > 0) {
-          String nameWithoutExt = fileName.substring(0, lastDotIndex);
-          String extension = fileName.substring(lastDotIndex);
-          finalFileName = '${nameWithoutExt}_$counter$extension';
-        } else {
-          finalFileName = '${fileName}_$counter';
-        }
-        counter++;
-      }
-
-      final file = File('${saveDir.path}/$finalFileName');
-      final sink = file.openWrite();
-
       // Add timeout for receiving
       bool timeoutOccurred = false;
       Timer? timeoutTimer;
+      IOSink? fileSink;
 
       void startTimeout() {
         timeoutTimer?.cancel();
@@ -186,6 +186,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
           Duration(seconds: settingsManager.networkTimeout),
           () {
             timeoutOccurred = true;
+            fileSink?.close();
             socket.close();
           },
         );
@@ -193,151 +194,129 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
 
       startTimeout();
 
-      await for (List<int> data in socket) {
-        if (!mounted || timeoutOccurred) {
-          sink.close();
-          return;
-        }
-
-        // Reset timeout on each data chunk
-        startTimeout();
-
-        if (!headerParsed && data.length > 5) {
-          // Parse header from first chunk
-          int nameLength = data[0];
-          if (data.length >= 5 + nameLength) {
-            fileName = String.fromCharCodes(data.sublist(1, 1 + nameLength));
-            expectedSize =
-                (data[1 + nameLength] << 24) |
-                (data[2 + nameLength] << 16) |
-                (data[3 + nameLength] << 8) |
-                data[4 + nameLength];
-            headerParsed = true;
-
-            // Check file size limit (2GB)
-            if (expectedSize > 2 * 1024 * 1024 * 1024) {
-              throw Exception('File size exceeds 2GB limit');
-            }
-
-            print(
-              'DEBUG: Header parsed - File: $fileName, Expected size: $expectedSize bytes',
-            );
-
-            // Update final filename with actual filename
-            finalFileName = fileName;
-            counter = 1;
-            while (await File('${saveDir.path}/$finalFileName').exists()) {
-              int lastDotIndex = fileName.lastIndexOf('.');
-              if (lastDotIndex > 0) {
-                String nameWithoutExt = fileName.substring(0, lastDotIndex);
-                String extension = fileName.substring(lastDotIndex);
-                finalFileName = '${nameWithoutExt}_$counter$extension';
-              } else {
-                finalFileName = '${fileName}_$counter';
-              }
-              counter++;
-            }
-
-            final actualFile = File('${saveDir.path}/$finalFileName');
-            sink.close();
-            final newSink = actualFile.openWrite();
-
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                print('DEBUG: Starting to receive file: $fileName');
-                _transferManager.startReceiving(fileName, expectedSize);
-              }
-            });
-
-            // Write file data (excluding header)
-            List<int> fileData = data.sublist(5 + nameLength);
-            if (fileData.isNotEmpty) {
-              newSink.add(fileData);
-              receivedBytes += fileData.length;
-            }
-
-            // Continue with the new sink
-            await for (List<int> chunk in socket) {
-              if (!mounted || timeoutOccurred) {
-                newSink.close();
-                return;
-              }
-
-              // Reset timeout on each chunk
-              startTimeout();
-
-              newSink.add(chunk);
-              receivedBytes += chunk.length;
-
-              double progress = receivedBytes / expectedSize;
-              double elapsedSeconds =
-                  DateTime.now().difference(startTime).inMilliseconds / 1000;
-              double speed =
-                  elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0;
-
-              // Update progress less frequently to reduce UI updates
-              if (receivedBytes % (1024 * 1024) == 0 ||
-                  receivedBytes == expectedSize) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    double clampedProgress = progress.clamp(0.0, 1.0);
-                    _transferManager.updateReceiveProgress(
-                      fileName,
-                      clampedProgress,
-                      speed,
-                      receivedBytes,
-                    );
-                  }
-                });
-              }
-            }
-
-            await newSink.close();
-            break;
+      // Use a more robust approach to handle the socket stream
+      try {
+        await for (List<int> data in socket) {
+          if (!mounted || timeoutOccurred) {
+            fileSink?.close();
+            return;
           }
-        } else if (headerParsed) {
-          // Continue receiving file data
-          sink.add(data);
-          receivedBytes += data.length;
 
-          double progress = receivedBytes / expectedSize;
-          double elapsedSeconds =
-              DateTime.now().difference(startTime).inMilliseconds / 1000;
-          double speed =
-              elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0;
+          // Reset timeout on each data chunk
+          startTimeout();
 
-          // Update progress less frequently to reduce UI updates
-          if (receivedBytes % (1024 * 1024) == 0 ||
-              receivedBytes == expectedSize) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                double clampedProgress = progress.clamp(0.0, 1.0);
-                _transferManager.updateReceiveProgress(
-                  fileName,
-                  clampedProgress,
-                  speed,
-                  receivedBytes,
-                );
+          if (!headerParsed && data.length > 5) {
+            // Parse header from first chunk
+            int nameLength = data[0];
+            if (data.length >= 5 + nameLength) {
+              fileName = String.fromCharCodes(data.sublist(1, 1 + nameLength));
+              expectedSize =
+                  (data[1 + nameLength] << 24) |
+                  (data[2 + nameLength] << 16) |
+                  (data[3 + nameLength] << 8) |
+                  data[4 + nameLength];
+              headerParsed = true;
+
+              // Check file size limit (15GB)
+              if (expectedSize > 15 * 1024 * 1024 * 1024) {
+                throw Exception('File size exceeds 15GB limit');
               }
-            });
+
+              // Create file with proper filename
+              String finalFileName = fileName;
+              int counter = 1;
+              while (await File('${saveDir.path}/$finalFileName').exists()) {
+                int lastDotIndex = fileName.lastIndexOf('.');
+                if (lastDotIndex > 0) {
+                  String nameWithoutExt = fileName.substring(0, lastDotIndex);
+                  String extension = fileName.substring(lastDotIndex);
+                  finalFileName = '${nameWithoutExt}_$counter$extension';
+                } else {
+                  finalFileName = '${fileName}_$counter';
+                }
+                counter++;
+              }
+
+              final actualFile = File('${saveDir.path}/$finalFileName');
+              fileSink = actualFile.openWrite();
+
+              // Start receiving state immediately
+              _transferManager.startReceiving(fileName, expectedSize);
+
+              // Force UI update
+              if (mounted) {
+                setState(() {});
+              }
+
+              // Write file data (excluding header)
+              List<int> fileData = data.sublist(5 + nameLength);
+              if (fileData.isNotEmpty) {
+                fileSink!.add(fileData);
+                receivedBytes += fileData.length;
+              }
+            }
+          } else if (headerParsed && fileSink != null) {
+            // Continue receiving file data
+            fileSink!.add(data);
+            receivedBytes += data.length;
+
+            double progress = receivedBytes / expectedSize;
+            double elapsedSeconds =
+                DateTime.now().difference(startTime).inMilliseconds / 1000;
+            double speed =
+                elapsedSeconds > 0 ? receivedBytes / elapsedSeconds : 0;
+
+            // Update progress dynamically based on file size for better user experience
+            // For very large files (>100MB), update every 256KB
+            // For large files (>10MB), update every 512KB
+            // For smaller files, update every 1MB
+            int updateInterval = 1024 * 1024; // Default 1MB
+            if (expectedSize > 100 * 1024 * 1024) {
+              updateInterval = 256 * 1024; // 256KB for very large files
+            } else if (expectedSize > 10 * 1024 * 1024) {
+              updateInterval = 512 * 1024; // 512KB for large files
+            }
+
+            if (receivedBytes % updateInterval == 0 ||
+                receivedBytes == expectedSize) {
+              double clampedProgress = progress.clamp(0.0, 1.0);
+              _transferManager.updateReceiveProgress(
+                fileName,
+                clampedProgress,
+                speed,
+                receivedBytes,
+              );
+
+              // Force UI update
+              if (mounted) {
+                setState(() {});
+              }
+            }
           }
         }
+      } catch (streamError) {
+        print('Stream error: $streamError');
+        // Handle stream errors gracefully
+        if (fileSink != null) {
+          await fileSink!.close();
+        }
+        throw streamError;
       }
 
       timeoutTimer?.cancel();
-      await sink.close();
+      await fileSink?.close();
 
       if (timeoutOccurred) {
         throw Exception('Transfer timeout - connection lost');
       }
 
       if (headerParsed && receivedBytes > 0) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            print('DEBUG: File received successfully: $fileName');
-            _transferManager.completeReceiving(fileName);
-          }
-        });
+        _transferManager.completeReceiving(fileName);
+
+        // Force UI update
+        if (mounted) {
+          setState(() {});
+        }
       }
     } catch (e) {
       print('Error receiving file: $e');
@@ -345,10 +324,16 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
         String errorMessage = "Error receiving file";
         if (e.toString().contains("timeout")) {
           errorMessage = "Transfer timeout - connection lost";
-        } else if (e.toString().contains("2GB")) {
-          errorMessage = "File size exceeds 2GB limit";
+        } else if (e.toString().contains("15GB")) {
+          errorMessage = "File size exceeds 15GB limit";
         } else if (e.toString().contains("Permission denied")) {
           errorMessage = "Permission denied. Please check storage permissions.";
+        } else if (e.toString().contains(
+          "Stream has already been listened to",
+        )) {
+          errorMessage = "Connection error - please try again";
+        } else if (e.toString().contains("SocketException")) {
+          errorMessage = "Connection lost - please try again";
         } else {
           errorMessage = "Error: ${e.toString()}";
         }
@@ -362,7 +347,11 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
         );
       }
     } finally {
-      socket.close();
+      try {
+        socket.close();
+      } catch (e) {
+        print('Error closing socket: $e');
+      }
     }
   }
 
@@ -446,9 +435,18 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
     return ListenableBuilder(
       listenable: _transferManager,
       builder: (context, child) {
+        // Debug logging to track state
+        print(
+          'DEBUG: ReceiveTab build - isReceiving: ${_transferManager.isReceiving}, isTransferComplete: ${_transferManager.isTransferComplete}',
+        );
+        print(
+          'DEBUG: ReceiveTab build - receiving files count: ${_transferManager.receivingFiles.length}',
+        );
+
         // Show dedicated receiving screen when receiving files or when transfer is complete
         if (_transferManager.isReceiving ||
             _transferManager.isTransferComplete) {
+          print('DEBUG: Showing receiving screen');
           // Hide navigation bar when receiving screen is active
           if (!_isNavigationHidden) {
             _isNavigationHidden = true;
@@ -461,6 +459,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
           return _buildReceivingScreen();
         }
 
+        print('DEBUG: Showing main receive screen');
         // Show main receive screen when not receiving
         // Show navigation bar when main screen is active
         if (_isNavigationHidden) {
@@ -479,6 +478,15 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
               IconButton(
                 icon: const Icon(Icons.info),
                 onPressed: () => _showSaveLocationInfo(),
+              ),
+              // Debug button to test receiving screen
+              IconButton(
+                icon: const Icon(Icons.bug_report),
+                onPressed: () {
+                  print('DEBUG: Manual test - starting receiving');
+                  _transferManager.startReceiving('test_file.txt', 1024);
+                  setState(() {});
+                },
               ),
             ],
           ),
@@ -1324,10 +1332,34 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
   }
 
   void _onCancelReceiving() {
-    // Stop receiving and return to main receive screen
-    setState(() {
-      _transferManager.resetReceivingState();
-    });
+    // Show confirmation dialog before canceling
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text("Cancel Receiving"),
+            content: const Text(
+              "Are you sure you want to cancel the receiving? This will stop the current transfer.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("No"),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Stop receiving and return to main receive screen
+                  setState(() {
+                    _transferManager.resetReceivingState();
+                  });
+                },
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text("Yes, Cancel"),
+              ),
+            ],
+          ),
+    );
   }
 
   void _onTransferComplete() {

@@ -176,6 +176,9 @@ class TransferManager extends ChangeNotifier {
   }
 
   void startReceiving(String fileName, int fileSize) {
+    print(
+      'DEBUG: TransferManager.startReceiving - fileName: $fileName, fileSize: $fileSize',
+    );
     _isReceiving = true;
     _isTransferComplete = false;
 
@@ -193,6 +196,9 @@ class TransferManager extends ChangeNotifier {
         ),
       );
     }
+    print(
+      'DEBUG: TransferManager.startReceiving - isReceiving: $_isReceiving, files count: ${_receivingFiles.length}',
+    );
     notifyListeners();
   }
 
@@ -202,6 +208,9 @@ class TransferManager extends ChangeNotifier {
     double speed,
     int receivedBytes,
   ) {
+    print(
+      'DEBUG: TransferManager.updateReceiveProgress - fileName: $fileName, progress: $progress, speed: $speed',
+    );
     final fileIndex = _receivingFiles.indexWhere(
       (file) => file.fileName == fileName,
     );
@@ -230,6 +239,7 @@ class TransferManager extends ChangeNotifier {
   }
 
   void completeReceiving(String fileName) {
+    print('DEBUG: TransferManager.completeReceiving - fileName: $fileName');
     final fileIndex = _receivingFiles.indexWhere(
       (file) => file.fileName == fileName,
     );
@@ -244,7 +254,13 @@ class TransferManager extends ChangeNotifier {
       final allComplete = _receivingFiles.every((file) => file.isComplete);
       if (allComplete) {
         _isTransferComplete = true;
+        print(
+          'DEBUG: TransferManager.completeReceiving - all files complete, setting transfer complete',
+        );
       }
+      print(
+        'DEBUG: TransferManager.completeReceiving - isTransferComplete: $_isTransferComplete',
+      );
       notifyListeners();
     }
   }

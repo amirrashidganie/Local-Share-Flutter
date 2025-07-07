@@ -50,29 +50,21 @@ class _SendTabState extends State<SendTab> {
 
   // File picker state
   bool _isFilePickerActive = false;
-  bool _isProcessingFiles = false; // Add loading state for file processing
 
   // Navigation visibility tracking
   bool _isNavigationHidden = false;
 
   Future<void> _pickFiles() async {
-    if (_isFilePickerActive || _disposed || !mounted) return;
+    if (_disposed || !mounted) return;
+
+    // Reset state if already active
+    if (_isFilePickerActive) {
+      _isFilePickerActive = false;
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
 
     try {
       _isFilePickerActive = true;
-      setState(() {
-        _isProcessingFiles = true;
-      });
-
-      // Show loading indicator
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Processing files...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
 
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -98,13 +90,14 @@ class _SendTabState extends State<SendTab> {
           'htm',
         ],
       );
-      if (result != null) {
+      if (result != null && result.paths.isNotEmpty) {
         if (_disposed || !mounted) return;
 
-        // Process files asynchronously to prevent UI blocking
-        await _processSelectedFiles(
-          result.paths.map((path) => File(path!)).toList(),
-        );
+        // Add files immediately without processing delay
+        final files = result.paths.map((path) => File(path!)).toList();
+        setState(() {
+          _selectedFiles.addAll(files);
+        });
 
         // Ensure auto-scan is running when files are added
         if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
@@ -113,6 +106,14 @@ class _SendTabState extends State<SendTab> {
       }
     } catch (e) {
       print('File picker error: $e');
+      // Handle already_active error specifically
+      if (e.toString().contains('already_active')) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted && !_disposed) {
+          _pickFiles(); // Retry after delay
+        }
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -122,43 +123,32 @@ class _SendTabState extends State<SendTab> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isFilePickerActive = false;
-          _isProcessingFiles = false;
-        });
-      }
+      _isFilePickerActive = false;
     }
   }
 
   Future<void> _pickImages() async {
-    if (_isFilePickerActive || _disposed || !mounted) return;
+    if (_disposed || !mounted) return;
+
+    // Reset state if already active
+    if (_isFilePickerActive) {
+      _isFilePickerActive = false;
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
 
     try {
       _isFilePickerActive = true;
-      setState(() {
-        _isProcessingFiles = true;
-      });
-
-      // Show loading indicator
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Processing images...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
 
       final ImagePicker picker = ImagePicker();
       final List<XFile> images = await picker.pickMultipleMedia();
       if (images.isNotEmpty) {
         if (_disposed || !mounted) return;
 
-        // Process files asynchronously to prevent UI blocking
-        await _processSelectedFiles(
-          images.map((image) => File(image.path)).toList(),
-        );
+        // Add files immediately without processing delay
+        final files = images.map((image) => File(image.path)).toList();
+        setState(() {
+          _selectedFiles.addAll(files);
+        });
 
         // Ensure auto-scan is running when files are added
         if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
@@ -167,6 +157,14 @@ class _SendTabState extends State<SendTab> {
       }
     } catch (e) {
       print('Image picker error: $e');
+      // Handle already_active error specifically
+      if (e.toString().contains('already_active')) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted && !_disposed) {
+          _pickImages(); // Retry after delay
+        }
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -176,46 +174,35 @@ class _SendTabState extends State<SendTab> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isFilePickerActive = false;
-          _isProcessingFiles = false;
-        });
-      }
+      _isFilePickerActive = false;
     }
   }
 
   Future<void> _pickVideos() async {
-    if (_isFilePickerActive || _disposed || !mounted) return;
+    if (_disposed || !mounted) return;
+
+    // Reset state if already active
+    if (_isFilePickerActive) {
+      _isFilePickerActive = false;
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
 
     try {
       _isFilePickerActive = true;
-      setState(() {
-        _isProcessingFiles = true;
-      });
-
-      // Show loading indicator
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Processing video files...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
 
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.video,
         allowMultiple: true,
       );
 
-      if (result != null) {
+      if (result != null && result.paths.isNotEmpty) {
         if (_disposed || !mounted) return;
 
-        // Process files asynchronously to prevent UI blocking
-        await _processSelectedFiles(
-          result.paths.map((path) => File(path!)).toList(),
-        );
+        // Add files immediately without processing delay
+        final files = result.paths.map((path) => File(path!)).toList();
+        setState(() {
+          _selectedFiles.addAll(files);
+        });
 
         // Ensure auto-scan is running when files are added
         if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
@@ -224,6 +211,14 @@ class _SendTabState extends State<SendTab> {
       }
     } catch (e) {
       print('Video picker error: $e');
+      // Handle already_active error specifically
+      if (e.toString().contains('already_active')) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted && !_disposed) {
+          _pickVideos(); // Retry after delay
+        }
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -233,157 +228,34 @@ class _SendTabState extends State<SendTab> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isFilePickerActive = false;
-          _isProcessingFiles = false;
-        });
-      }
-    }
-  }
-
-  // Helper method to process selected files asynchronously
-  Future<void> _processSelectedFiles(List<File> files) async {
-    if (_disposed || !mounted) return;
-
-    int processedCount = 0;
-    int totalFiles = files.length;
-
-    // Add files one by one to show progress
-    for (int i = 0; i < files.length; i++) {
-      if (_disposed || !mounted) return;
-
-      final file = files[i];
-
-      // Verify file exists and is accessible
-      try {
-        if (await file.exists()) {
-          final fileSize = await file.length();
-
-          // Check if file is too large (e.g., > 2GB)
-          if (fileSize > 2 * 1024 * 1024 * 1024) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'File ${file.path.split('/').last} is too large (>2GB)',
-                  ),
-                  backgroundColor: Colors.orange,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-            continue;
-          }
-
-          // Check if file is accessible
-          try {
-            await file.openRead().first;
-          } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Cannot access file: ${file.path.split('/').last}',
-                  ),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-            continue;
-          }
-
-          setState(() {
-            _selectedFiles.add(file);
-            processedCount++;
-          });
-
-          // Show progress for large files
-          if (totalFiles > 5 && processedCount % 5 == 0) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Processed $processedCount of $totalFiles files...',
-                  ),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            }
-          }
-
-          // Small delay to prevent UI blocking
-          await Future.delayed(const Duration(milliseconds: 50));
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('File not found: ${file.path.split('/').last}'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        print('Error processing file ${file.path}: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Error processing file: ${file.path.split('/').last}',
-              ),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    }
-
-    // Show completion message
-    if (mounted && processedCount > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Successfully added $processedCount files'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      _isFilePickerActive = false;
     }
   }
 
   Future<void> _pickAudio() async {
-    if (_isFilePickerActive || _disposed || !mounted) return;
+    if (_disposed || !mounted) return;
+
+    // Reset state if already active
+    if (_isFilePickerActive) {
+      _isFilePickerActive = false;
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
 
     try {
       _isFilePickerActive = true;
-      setState(() {
-        _isProcessingFiles = true;
-      });
-
-      // Show loading indicator
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Processing audio files...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
 
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.audio,
         allowMultiple: true,
       );
-      if (result != null) {
+      if (result != null && result.paths.isNotEmpty) {
         if (_disposed || !mounted) return;
 
-        // Process files asynchronously to prevent UI blocking
-        await _processSelectedFiles(
-          result.paths.map((path) => File(path!)).toList(),
-        );
+        // Add files immediately without processing delay
+        final files = result.paths.map((path) => File(path!)).toList();
+        setState(() {
+          _selectedFiles.addAll(files);
+        });
 
         // Ensure auto-scan is running when files are added
         if (_currentIP.isNotEmpty && !_isScanning && !_disposed && mounted) {
@@ -392,6 +264,14 @@ class _SendTabState extends State<SendTab> {
       }
     } catch (e) {
       print('Audio picker error: $e');
+      // Handle already_active error specifically
+      if (e.toString().contains('already_active')) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted && !_disposed) {
+          _pickAudio(); // Retry after delay
+        }
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -401,12 +281,7 @@ class _SendTabState extends State<SendTab> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isFilePickerActive = false;
-          _isProcessingFiles = false;
-        });
-      }
+      _isFilePickerActive = false;
     }
   }
 
@@ -421,6 +296,20 @@ class _SendTabState extends State<SendTab> {
       if (_disposed || !mounted) return;
       setState(() => _selectedFiles.removeAt(index));
     }
+  }
+
+  Future<int> _calculateTotalSize() async {
+    int totalSize = 0;
+    for (var file in _selectedFiles) {
+      if (file is File) {
+        try {
+          totalSize += await file.length();
+        } catch (e) {
+          // Skip files that can't be read
+        }
+      }
+    }
+    return totalSize;
   }
 
   @override
@@ -445,7 +334,7 @@ class _SendTabState extends State<SendTab> {
     // Stop auto-scan immediately
     _stopAutoScan();
     _autoScanTimer?.cancel();
-    // Reset file picker state
+    // Reset file picker state completely
     _isFilePickerActive = false;
     // Use addPostFrameCallback to avoid calling notifyListeners during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -621,7 +510,7 @@ class _SendTabState extends State<SendTab> {
     if (_disposed || !mounted) return;
     final filesToSend = _selectedFiles.whereType<File>().toList();
 
-    // Check total file size before sending
+    // Quick size check without blocking UI
     int totalSize = 0;
     for (var file in filesToSend) {
       try {
@@ -629,19 +518,6 @@ class _SendTabState extends State<SendTab> {
       } catch (e) {
         print('Error getting file size: $e');
       }
-    }
-
-    // Check if total size exceeds limit (e.g., 5GB)
-    if (totalSize > 5 * 1024 * 1024 * 1024) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Total file size exceeds 5GB limit"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
     }
 
     // Use addPostFrameCallback to avoid calling notifyListeners during build
@@ -657,15 +533,15 @@ class _SendTabState extends State<SendTab> {
 
         dynamic file = filesToSend[i];
 
-        // Check individual file size
+        // Check individual file size (15GB limit)
         try {
           int fileSize = await file.length();
-          if (fileSize > 2 * 1024 * 1024 * 1024) {
+          if (fileSize > 15 * 1024 * 1024 * 1024) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    "File ${file.path.split('/').last} exceeds 2GB limit",
+                    "File ${file.path.split('/').last} exceeds 15GB limit",
                   ),
                   backgroundColor: Colors.red,
                 ),
@@ -718,8 +594,8 @@ class _SendTabState extends State<SendTab> {
           if (e.toString().contains("timeout")) {
             errorMessage =
                 "Connection timeout. Please check network connection.";
-          } else if (e.toString().contains("2GB")) {
-            errorMessage = "File size exceeds 2GB limit";
+          } else if (e.toString().contains("15GB")) {
+            errorMessage = "File size exceeds 15GB limit";
           } else if (e.toString().contains("Connection refused")) {
             errorMessage = "Connection refused. Receiver may be offline.";
           } else {
@@ -757,9 +633,9 @@ class _SendTabState extends State<SendTab> {
 
       int totalSize = await file.length();
 
-      // Check file size limit (2GB)
-      if (totalSize > 2 * 1024 * 1024 * 1024) {
-        throw Exception('File size exceeds 2GB limit');
+      // Check file size limit (15GB)
+      if (totalSize > 15 * 1024 * 1024 * 1024) {
+        throw Exception('File size exceeds 15GB limit');
       }
 
       socket.add([
@@ -799,8 +675,18 @@ class _SendTabState extends State<SendTab> {
                   ? (sentBytes / (1024 * 1024)) / elapsedSeconds
                   : 0;
 
-          // Update progress less frequently to reduce UI updates
-          if (sentBytes % (1024 * 1024) == 0 || sentBytes == totalSize) {
+          // Update progress dynamically based on file size for better user experience
+          // For very large files (>100MB), update every 256KB
+          // For large files (>10MB), update every 512KB
+          // For smaller files, update every 1MB
+          int updateInterval = 1024 * 1024; // Default 1MB
+          if (totalSize > 100 * 1024 * 1024) {
+            updateInterval = 256 * 1024; // 256KB for very large files
+          } else if (totalSize > 10 * 1024 * 1024) {
+            updateInterval = 512 * 1024; // 512KB for large files
+          }
+
+          if (sentBytes % updateInterval == 0 || sentBytes == totalSize) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 _transferManager.updateSendProgress(progress, fileName, speed);
@@ -953,121 +839,326 @@ class _SendTabState extends State<SendTab> {
 
   Widget _buildMainSendScreen() {
     return Scaffold(
-      appBar: AppBar(title: const Text("LocalShare")),
+      appBar: AppBar(
+        title: const Text("LocalShare"),
+        actions: [
+          // Add button - only show when files are selected
+          if (_selectedFiles.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: _showAddFilesModal,
+              tooltip: "Add more files",
+            ),
+        ],
+        leading:
+            _selectedFiles.isNotEmpty
+                ? IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: _clearAllSelections,
+                  tooltip: "Clear all selections",
+                )
+                : null,
+      ),
       body: ListView(
         padding: EdgeInsets.only(bottom: 90),
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            child: GridView.count(
-              shrinkWrap: true,
-              crossAxisCount: 4,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              children: [
-                _buildCategoryCard(
-                  Icons.folder,
-                  "Files",
-                  Colors.blue,
-                  _pickFiles,
+          // Selected files section - show at top when files are selected
+          if (_selectedFiles.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface.withOpacity(0.8),
+                border: Border(
+                  bottom: BorderSide(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withOpacity(0.3),
+                  ),
                 ),
-                _buildCategoryCard(
-                  Icons.image,
-                  "Photos",
-                  Colors.green,
-                  _pickImages,
-                ),
-                _buildCategoryCard(
-                  Icons.videocam,
-                  "Videos",
-                  Colors.red,
-                  _pickVideos,
-                ),
-                _buildCategoryCard(
-                  Icons.audiotrack,
-                  "Audio",
-                  Colors.orange,
-                  _pickAudio,
-                ),
-                _buildCategoryCard(Icons.apps, "Apps", Colors.purple, () async {
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const DeviceAppsScreen(),
-                    ),
-                  );
-                  if (result != null) {
-                    if (result is List) {
-                      // Multiple apps selected
-                      if (_disposed || !mounted) return;
-                      setState(() {
-                        for (var app in result) {
-                          if (app is AppInfo && !_selectedFiles.contains(app)) {
-                            _selectedFiles.add(app);
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Selected Files (${_selectedFiles.length})",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                      FutureBuilder<int>(
+                        future: _calculateTotalSize(),
+                        builder: (context, snapshot) {
+                          return Text(
+                            FileUtils.formatFileSize(snapshot.data ?? 0),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Show selected files list
+                  ListView.builder(
+                    controller: _selectedFilesScrollController,
+                    shrinkWrap: true,
+                    scrollDirection: Axis.vertical,
+                    itemCount:
+                        (_selectedFilesDisplayCount < _selectedFiles.length)
+                            ? _selectedFilesDisplayCount + 1
+                            : _selectedFiles.length,
+                    itemBuilder: (context, index) {
+                      if (index >= _selectedFilesDisplayCount &&
+                          _selectedFilesDisplayCount < _selectedFiles.length) {
+                        return const Center(
+                          child: SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: CircularProgressIndicator(),
+                          ),
+                        );
+                      }
+                      final item = _selectedFiles[index];
+                      if (item is File) {
+                        String fileName = item.path.split('/').last;
+                        return Card(
+                          margin: const EdgeInsets.symmetric(
+                            vertical: 4,
+                            horizontal: 0,
+                          ),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ListTile(
+                            leading: Icon(
+                              _getFileIcon(fileName),
+                              color: Colors.blue,
+                              size: 32,
+                            ),
+                            title: Text(
+                              fileName,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: FutureBuilder<int>(
+                              future: item.length(),
+                              builder: (context, snapshot) {
+                                return Text(
+                                  FileUtils.formatFileSize(snapshot.data ?? 0),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface.withOpacity(0.6),
+                                  ),
+                                );
+                              },
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.red,
+                                size: 20,
+                              ),
+                              onPressed: () => _removeFile(index),
+                            ),
+                          ),
+                        );
+                      } else if (item is AppInfo) {
+                        return Card(
+                          margin: const EdgeInsets.symmetric(
+                            vertical: 4,
+                            horizontal: 0,
+                          ),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ListTile(
+                            leading:
+                                item.icon != null
+                                    ? Image.memory(
+                                      item.icon!,
+                                      width: 32,
+                                      height: 32,
+                                    )
+                                    : const Icon(
+                                      Icons.android,
+                                      color: Colors.purple,
+                                      size: 32,
+                                    ),
+                            title: Text(
+                              item.name,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              item.packageName,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withOpacity(0.6),
+                              ),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.red,
+                                size: 20,
+                              ),
+                              onPressed: () => _removeFile(index),
+                            ),
+                          ),
+                        );
+                      } else {
+                        return const SizedBox.shrink();
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // File selection grid - only show when no files are selected
+          if (_selectedFiles.isEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: GridView.count(
+                shrinkWrap: true,
+                crossAxisCount: 4,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                children: [
+                  _buildCategoryCard(
+                    Icons.folder,
+                    "Files",
+                    Colors.blue,
+                    _pickFiles,
+                  ),
+                  _buildCategoryCard(
+                    Icons.image,
+                    "Photos",
+                    Colors.green,
+                    _pickImages,
+                  ),
+                  _buildCategoryCard(
+                    Icons.videocam,
+                    "Videos",
+                    Colors.red,
+                    _pickVideos,
+                  ),
+                  _buildCategoryCard(
+                    Icons.audiotrack,
+                    "Audio",
+                    Colors.orange,
+                    _pickAudio,
+                  ),
+                  _buildCategoryCard(
+                    Icons.apps,
+                    "Apps",
+                    Colors.purple,
+                    () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const DeviceAppsScreen(),
+                        ),
+                      );
+                      if (result != null) {
+                        if (result is List) {
+                          // Multiple apps selected
+                          if (_disposed || !mounted) return;
+                          setState(() {
+                            for (var app in result) {
+                              if (app is AppInfo &&
+                                  !_selectedFiles.contains(app)) {
+                                _selectedFiles.add(app);
+                              }
+                            }
+                          });
+                          // Ensure auto-scan is running when files are added
+                          if (_currentIP.isNotEmpty &&
+                              !_isScanning &&
+                              !_disposed &&
+                              mounted) {
+                            _startAutoScan();
+                          }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Added ${result.length} apps to selection',
+                                ),
+                              ),
+                            );
+                          }
+                        } else if (result is AppInfo) {
+                          // Single app selected (fallback)
+                          if (_disposed || !mounted) return;
+                          setState(() {
+                            _selectedFiles.add(result);
+                          });
+                          // Ensure auto-scan is running when files are added
+                          if (_currentIP.isNotEmpty &&
+                              !_isScanning &&
+                              !_disposed &&
+                              mounted) {
+                            _startAutoScan();
+                          }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Added ${result.name} to selection',
+                                ),
+                              ),
+                            );
                           }
                         }
-                      });
-                      // Ensure auto-scan is running when files are added
-                      if (_currentIP.isNotEmpty &&
-                          !_isScanning &&
-                          !_disposed &&
-                          mounted) {
-                        _startAutoScan();
                       }
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Added \\${result.length} apps to selection',
-                            ),
-                          ),
-                        );
-                      }
-                    } else if (result is AppInfo) {
-                      // Single app selected (fallback)
-                      if (_disposed || !mounted) return;
-                      setState(() {
-                        _selectedFiles.add(result);
-                      });
-                      // Ensure auto-scan is running when files are added
-                      if (_currentIP.isNotEmpty &&
-                          !_isScanning &&
-                          !_disposed &&
-                          mounted) {
-                        _startAutoScan();
-                      }
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Added \\${result.name} to selection',
-                            ),
-                          ),
-                        );
-                      }
-                    }
-                  }
-                }),
+                    },
+                  ),
 
-                //clipboard
-                _buildCategoryCard(
-                  Icons.copy,
-                  "Clipboard",
-                  Colors.grey,
-                  _addClipboardText,
-                ),
+                  //clipboard
+                  _buildCategoryCard(
+                    Icons.copy,
+                    "Clipboard",
+                    Colors.grey,
+                    _addClipboardText,
+                  ),
 
-                //text
-                _buildCategoryCard(
-                  Icons.text_fields,
-                  "Text",
-                  Colors.grey,
-                  _addCustomText,
-                ),
-              ],
+                  //text
+                  _buildCategoryCard(
+                    Icons.text_fields,
+                    "Text",
+                    Colors.grey,
+                    _addCustomText,
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
 
           //send options section
           Container(
@@ -1230,245 +1321,6 @@ class _SendTabState extends State<SendTab> {
               ],
             ),
           ),
-
-          //selected files section
-          if (_selectedFiles.isNotEmpty || _isProcessingFiles) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface.withOpacity(0.8),
-                border: Border(
-                  top: BorderSide(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withOpacity(0.3),
-                  ),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            "Selected Files (${_selectedFiles.length})",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                          ),
-                          if (_isProcessingFiles) ...[
-                            const SizedBox(width: 8),
-                            const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              "Processing...",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(context).colorScheme.primary,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (_selectedFiles.isNotEmpty)
-                        Text(
-                          FileUtils.formatFileSize(
-                            _selectedFiles.fold(
-                              0,
-                              (sum, file) =>
-                                  sum + (file is File ? file.lengthSync() : 0),
-                            ),
-                          ),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withOpacity(0.6),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Show processing message when no files yet but processing
-                  if (_isProcessingFiles && _selectedFiles.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withOpacity(0.3),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              "Processing files... Please wait",
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  // Show selected files list
-                  if (_selectedFiles.isNotEmpty)
-                    ListView.builder(
-                      controller: _selectedFilesScrollController,
-                      shrinkWrap: true,
-                      scrollDirection: Axis.vertical,
-                      itemCount:
-                          (_selectedFilesDisplayCount < _selectedFiles.length)
-                              ? _selectedFilesDisplayCount + 1
-                              : _selectedFiles.length,
-                      itemBuilder: (context, index) {
-                        if (index >= _selectedFilesDisplayCount &&
-                            _selectedFilesDisplayCount <
-                                _selectedFiles.length) {
-                          return const Center(
-                            child: SizedBox(
-                              width: 40,
-                              height: 40,
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-                        }
-                        final item = _selectedFiles[index];
-                        if (item is File) {
-                          String fileName = item.path.split('/').last;
-                          return Card(
-                            margin: const EdgeInsets.symmetric(
-                              vertical: 4,
-                              horizontal: 0,
-                            ),
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: ListTile(
-                              leading: Icon(
-                                _getFileIcon(fileName),
-                                color: Colors.blue,
-                                size: 32,
-                              ),
-                              title: Text(
-                                fileName,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color:
-                                      Theme.of(context).colorScheme.onSurface,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                FileUtils.formatFileSize(item.lengthSync()),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurface.withOpacity(0.6),
-                                ),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.close,
-                                  color: Colors.red,
-                                  size: 20,
-                                ),
-                                onPressed: () => _removeFile(index),
-                              ),
-                            ),
-                          );
-                        } else if (item is AppInfo) {
-                          return Card(
-                            margin: const EdgeInsets.symmetric(
-                              vertical: 4,
-                              horizontal: 0,
-                            ),
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: ListTile(
-                              leading:
-                                  item.icon != null
-                                      ? Image.memory(
-                                        item.icon!,
-                                        width: 32,
-                                        height: 32,
-                                      )
-                                      : const Icon(
-                                        Icons.android,
-                                        color: Colors.purple,
-                                        size: 32,
-                                      ),
-                              title: Text(
-                                item.name,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color:
-                                      Theme.of(context).colorScheme.onSurface,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                item.packageName,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurface.withOpacity(0.6),
-                                ),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.close,
-                                  color: Colors.red,
-                                  size: 20,
-                                ),
-                                onPressed: () => _removeFile(index),
-                              ),
-                            ),
-                          );
-                        } else {
-                          return const SizedBox.shrink();
-                        }
-                      },
-                    ),
-                ],
-              ),
-            ),
-          ],
-          const Spacer(),
         ],
       ),
     );
@@ -1629,37 +1481,19 @@ class _SendTabState extends State<SendTab> {
     Color color,
     VoidCallback onTap,
   ) {
-    bool isProcessing =
-        _isProcessingFiles &&
-        ((label == "Videos" && _isFilePickerActive) ||
-            (label == "Photos" && _isFilePickerActive) ||
-            (label == "Files" && _isFilePickerActive) ||
-            (label == "Audio" && _isFilePickerActive));
-
     return GestureDetector(
-      onTap: isProcessing ? null : onTap,
+      onTap: onTap,
       child: Card(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (isProcessing)
-              const SizedBox(
-                width: 32,
-                height: 32,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Icon(icon, size: 32, color: color),
+            Icon(icon, size: 32, color: color),
             const SizedBox(height: 4),
             Text(
-              isProcessing ? "Processing..." : label,
+              label,
               style: TextStyle(
                 fontSize: 12,
-                color:
-                    isProcessing
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface,
-                fontStyle: isProcessing ? FontStyle.italic : FontStyle.normal,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ],
@@ -2535,15 +2369,15 @@ class _SendTabState extends State<SendTab> {
                                   }
                                 }
                               });
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Added ${result.length} apps to queue',
-                                    ),
-                                  ),
-                                );
-                              }
+                              // if (mounted) {
+                              //   ScaffoldMessenger.of(context).showSnackBar(
+                              //     SnackBar(
+                              //       content: Text(
+                              //         'Added ${result.length} apps to queue',
+                              //       ),
+                              //     ),
+                              //   );
+                              // }
                             } else if (result is AppInfo) {
                               if (_disposed || !mounted) return;
                               setState(() {
@@ -2651,11 +2485,44 @@ class _SendTabState extends State<SendTab> {
   }
 
   void _onCancelSending() {
-    // Stop sending and return to main send screen
-    setState(() {
-      _selectedFiles.clear();
-      _availableDevices.clear();
-    });
-    _transferManager.stopSending();
+    // Show confirmation dialog before canceling
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text("Cancel Sending"),
+            content: const Text(
+              "Are you sure you want to cancel the sending? This will stop the current transfer.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("No"),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Stop sending and return to main send screen
+                  setState(() {
+                    _selectedFiles.clear();
+                    _availableDevices.clear();
+                  });
+                  _transferManager.stopSending();
+                },
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text("Yes, Cancel"),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _clearAllSelections() {
+    if (mounted) {
+      setState(() {
+        _selectedFiles.clear();
+        _availableDevices.clear();
+      });
+    }
   }
 }
