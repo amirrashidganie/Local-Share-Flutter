@@ -672,8 +672,10 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
   String _getSaveLocationDisplay() {
     final settingsManager = SettingsManager();
     switch (settingsManager.saveLocation) {
-      case 'Downloads':
-        return 'Downloads folder';
+      case 'LocalShare':
+        return 'LocalShare folder';
+      case 'Download':
+        return 'Download folder';
       case 'DCIM':
         return 'DCIM folder';
       case 'Documents':
@@ -681,7 +683,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
       case 'Custom':
         return 'Custom location';
       default:
-        return 'Documents/LocalShare folder';
+        return 'LocalShare folder';
     }
   }
 
@@ -966,7 +968,7 @@ class _ReceiveTabState extends State<ReceiveTab> with TickerProviderStateMixin {
                 value: file.progress,
                 backgroundColor: Colors.grey[300],
                 valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-                minHeight: 8,
+                minHeight: 5,
               ),
             ),
             const SizedBox(height: 8),

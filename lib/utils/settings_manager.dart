@@ -203,11 +203,11 @@ class SettingsManager {
     List<Map<String, String>> locations = [
       {
         'name': 'LocalShare',
-        'path': 'Documents/LocalShare',
+        'path': '/storage/emulated/0/LocalShare',
         'description': 'Default LocalShare folder (app documents)',
       },
       {
-        'name': 'Downloads',
+        'name': 'Download',
         'path': '/storage/emulated/0/Download',
         'description': 'System downloads folder',
       },
@@ -238,7 +238,7 @@ class SettingsManager {
   Future<Directory> getCurrentSaveDirectory() async {
     try {
       switch (_saveLocation) {
-        case 'Downloads':
+        case 'Download':
           return Directory('/storage/emulated/0/Download');
         case 'DCIM':
           return Directory('/storage/emulated/0/DCIM');

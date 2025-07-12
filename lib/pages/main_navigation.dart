@@ -52,9 +52,9 @@ class _MainNavigationState extends State<MainNavigation> {
           _hideNavigation
               ? null
               : NavigationBar(
-                selectedIndex: _currentIndex,
-                destinations: const [
-                  NavigationDestination(icon: Icon(Icons.send), label: 'Send'),
+        selectedIndex: _currentIndex,
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.send), label: 'Send'),
                   NavigationDestination(
                     icon: Icon(Icons.download),
                     label: 'Receive',
@@ -63,7 +63,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     icon: Icon(Icons.settings),
                     label: 'Settings',
                   ),
-                ],
+        ],
                 onDestinationSelected: (index) {
                   // Control auto-scan based on tab selection
                   if (index == 0) {
@@ -76,7 +76,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
                   setState(() => _currentIndex = index);
                 },
-              ),
+      ),
     );
   }
 }

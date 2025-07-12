@@ -43,6 +43,7 @@ class _SendTabState extends State<SendTab> {
   bool _showQrScanner = false;
   String _currentSSID = "";
   String _currentIP = "";
+  String _currentDeviceName = "";
   List<String> _availableDevices = [];
   bool _isScanning = false;
   bool _disposed = false;
@@ -463,6 +464,7 @@ class _SendTabState extends State<SendTab> {
     if (mounted) {
       setState(() {
         _availableDevices.clear();
+        _currentDeviceName = "";
         _isScanning = true;
       });
     }
@@ -1330,11 +1332,14 @@ class _SendTabState extends State<SendTab> {
                       child: ListTile(
                         dense: true,
                         leading: const Icon(
-                          Icons.download,
+                          Icons.phone_android_sharp,
                           color: Colors.green,
                           size: 20,
                         ),
-                        title: Text(ip, style: const TextStyle(fontSize: 14)),
+                        title: Text(
+                          _currentDeviceName.isEmpty ? ip : _currentDeviceName,
+                          style: const TextStyle(fontSize: 14),
+                        ),
                         subtitle: const Text(
                           "Ready to receive",
                           style: TextStyle(fontSize: 12, color: Colors.green),
@@ -1638,6 +1643,18 @@ class _SendTabState extends State<SendTab> {
         ],
       ),
     );
+  }
+
+  String _formatSpeed(double bytesPerSecond) {
+    if (bytesPerSecond < 1024) {
+      return '${bytesPerSecond.toStringAsFixed(1)} B/s';
+    } else if (bytesPerSecond < 1024 * 1024) {
+      return '${(bytesPerSecond / 1024).toStringAsFixed(1)} KB/s';
+    } else if (bytesPerSecond < 1024 * 1024 * 1024) {
+      return '${(bytesPerSecond / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+    } else {
+      return '${(bytesPerSecond / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB/s';
+    }
   }
 
   IconData _getFileIcon(String fileName) {
@@ -1974,47 +1991,9 @@ class _SendTabState extends State<SendTab> {
                   ),
                 ),
               ),
-              // Expanded(
-              //   child: Column(
-              //     crossAxisAlignment: CrossAxisAlignment.start,
-              //     children: [
-              //       Text(
-              //         isComplete
-              //             ? "Transfer Complete"
-              //             : _transferManager.sendingFileName,
-              //         style: TextStyle(
-              //           fontSize: 18,
-              //           fontWeight: FontWeight.bold,
-              //           color: isComplete ? Colors.green : Colors.white,
-              //         ),
-              //         maxLines: 1,
-              //         overflow: TextOverflow.ellipsis,
-              //       ),
-              //       Text(
-              //         isComplete
-              //             ? "All files sent successfully"
-              //             : "File ${_transferManager.currentSendingIndex + 1} of ${_transferManager.sendingFiles.length}",
-              //         style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              //       ),
-              //     ],
-              //   ),
-              // ),
             ],
           ),
-          const SizedBox(height: 16),
 
-          // Progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: _transferManager.sendProgress,
-              backgroundColor: Colors.grey[300],
-              valueColor: AlwaysStoppedAnimation<Color>(
-                isComplete ? Colors.green : Colors.blue,
-              ),
-              minHeight: 5,
-            ),
-          ),
           const SizedBox(height: 12),
           // Progress section
           if (!_transferManager.isSendingComplete) ...[
@@ -2025,7 +2004,7 @@ class _SendTabState extends State<SendTab> {
                 value: _transferManager.sendProgress,
                 backgroundColor: Colors.grey[300],
                 valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-                minHeight: 8,
+                minHeight: 5,
               ),
             ),
             const SizedBox(height: 8),
@@ -2078,7 +2057,7 @@ class _SendTabState extends State<SendTab> {
                 Icon(Icons.check_circle, color: Colors.green, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  "File received successfully",
+                  "File sent successfully",
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -2088,32 +2067,6 @@ class _SendTabState extends State<SendTab> {
               ],
             ),
           ],
-
-          // // Progress details
-          // Row(
-          //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          //   children: [
-          //     Text(
-          //       isComplete
-          //           ? "100%"
-          //           : "${(_transferManager.sendProgress * 100).toStringAsFixed(1)}%",
-          //       style: TextStyle(
-          //         fontSize: 16,
-          //         fontWeight: FontWeight.bold,
-          //         color: isComplete ? Colors.green : Colors.blue,
-          //       ),
-          //     ),
-          //     if (!isComplete)
-          //       Text(
-          //         "${_transferManager.sendSpeed.toStringAsFixed(1)} MB/s",
-          //         style: const TextStyle(
-          //           fontSize: 14,
-          //           fontWeight: FontWeight.w600,
-          //           color: Colors.green,
-          //         ),
-          //       ),
-          //   ],
-          // ),
         ],
       ),
     );
@@ -2201,22 +2154,25 @@ class _SendTabState extends State<SendTab> {
   }
 
   Widget _buildTransferStatisticsCard() {
-    final totalSize = _transferManager.sendingFiles.fold<int>(
+    final isComplete = _transferManager.isTransferComplete;
+    final totalFiles = _transferManager.receivingFiles.length;
+    final completedFiles =
+        _transferManager.receivingFiles.where((f) => f.isComplete).length;
+    final totalSize = _transferManager.receivingFiles.fold<int>(
       0,
-      (sum, file) => sum + file.lengthSync(),
+      (sum, file) => sum + file.fileSize,
     );
-    final completedSize = _transferManager.sendingFiles
-        .take(_transferManager.currentSendingIndex)
-        .fold<int>(0, (sum, file) => sum + file.lengthSync());
-    final currentFileSize =
-        _transferManager.sendingFiles.isNotEmpty
-            ? _transferManager
-                .sendingFiles[_transferManager.currentSendingIndex]
-                .lengthSync()
-            : 0;
-    final sentSize =
-        completedSize +
-        (currentFileSize * _transferManager.sendProgress).toInt();
+    final receivedSize = _transferManager.receivingFiles.fold<int>(
+      0,
+      (sum, file) => sum + file.receivedBytes,
+    );
+    final avgSpeed =
+        _transferManager.receivingFiles.isNotEmpty
+            ? _transferManager.receivingFiles
+                    .map((f) => f.speed)
+                    .reduce((a, b) => a + b) /
+                _transferManager.receivingFiles.length
+            : 0.0;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -2248,7 +2204,7 @@ class _SendTabState extends State<SendTab> {
               Expanded(
                 child: _buildStatItem(
                   "Files",
-                  "${_transferManager.currentSendingIndex}/${_transferManager.sendingFiles.length}",
+                  "$completedFiles/$totalFiles",
                   Icons.file_copy,
                   Colors.blue,
                 ),
@@ -2257,7 +2213,7 @@ class _SendTabState extends State<SendTab> {
               Expanded(
                 child: _buildStatItem(
                   "Data",
-                  "${FileUtils.formatFileSize(sentSize)}/${FileUtils.formatFileSize(totalSize)}",
+                  "${_formatFileSize(receivedSize)}/${_formatFileSize(totalSize)}",
                   Icons.storage,
                   Colors.green,
                 ),
@@ -2269,8 +2225,8 @@ class _SendTabState extends State<SendTab> {
             children: [
               Expanded(
                 child: _buildStatItem(
-                  "Speed",
-                  "${_transferManager.sendSpeed.toStringAsFixed(1)} MB/s",
+                  "Avg Speed",
+                  _formatSpeed(avgSpeed),
                   Icons.speed,
                   Colors.orange,
                 ),
@@ -2279,9 +2235,9 @@ class _SendTabState extends State<SendTab> {
               Expanded(
                 child: _buildStatItem(
                   "Status",
-                  "Active",
+                  isComplete ? "Complete" : "Active",
                   Icons.info,
-                  Colors.blue,
+                  isComplete ? Colors.green : Colors.blue,
                 ),
               ),
             ],
@@ -2347,6 +2303,7 @@ class _SendTabState extends State<SendTab> {
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: Colors.purple,
                 ),
               ),
             ],
@@ -2454,7 +2411,7 @@ class _SendTabState extends State<SendTab> {
           (context) => Container(
             height: MediaQuery.of(context).size.height * 0.7,
             decoration: const BoxDecoration(
-              color: Colors.white,
+              color: const Color.fromARGB(255, 59, 42, 96),
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(20),
                 topRight: Radius.circular(20),
@@ -2640,6 +2597,7 @@ class _SendTabState extends State<SendTab> {
     setState(() {
       _selectedFiles.clear();
       _availableDevices.clear();
+      _currentDeviceName = "";
     });
 
     // Stop the sending state to return to main screen
@@ -2677,6 +2635,7 @@ class _SendTabState extends State<SendTab> {
                   setState(() {
                     _selectedFiles.clear();
                     _availableDevices.clear();
+                    _currentDeviceName = "";
                   });
                   _transferManager.stopSending();
                 },
@@ -2693,6 +2652,7 @@ class _SendTabState extends State<SendTab> {
       setState(() {
         _selectedFiles.clear();
         _availableDevices.clear();
+        _currentDeviceName = "";
       });
     }
   }
